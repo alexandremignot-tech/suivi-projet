@@ -1,0 +1,55 @@
+# Configuration de deploiement en un clic sur Render.com (https://render.com)
+# Utilisation : sur render.com, "New +" > "Blueprint", connectez ce depot Git, Render lit ce fichier
+# et cree automatiquement la base de donnees + le backend + le frontend.
+# Vous n'avez ensuite qu'a renseigner les variables marquees "sync: false" dans le tableau de bord Render.
+
+databases:
+  - name: suivi-projet-db
+    plan: free
+    databaseName: suivi_projet
+    user: suivi
+
+services:
+  - type: web
+    name: suivi-projet-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: suivi-projet-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PORT
+        value: 4000
+      - key: CORS_ORIGIN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: ODOO_URL
+        sync: false
+      - key: ODOO_DB
+        sync: false
+      - key: ODOO_USERNAME
+        sync: false
+      - key: ODOO_API_KEY
+        sync: false
+
+  - type: web
+    name: suivi-projet-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      - key: VITE_API_URL
+        sync: false

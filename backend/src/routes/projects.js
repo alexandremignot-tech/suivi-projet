@@ -1,0 +1,169 @@
+const express = require("express");
+const prisma = require("../db");
+const asyncHandler = require("../utils/asyncHandler");
+const { requireAuth } = require("../middleware/auth");
+const { getTemplate } = require("../utils/projectTemplates");
+
+const router = express.Router();
+router.use(requireAuth);
+
+const DEFAULT_COLUMNS = ["A faire", "En cours", "En revue", "Termine"];
+
+// Liste des projets de l'organisation de l'utilisateur connecte
+router.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const projects = await prisma.project.findMany({
+      where: { organizationId: req.user.organizationId },
+      orderBy: { createdAt: "desc" },
+      include: {
+        _count: { select: { tasks: true } },
+      },
+    });
+    res.json(projects);
+  })
+);
+
+router.post(
+  "/",
+  asyncHandler(async (req, res) => {
+    const { name, description, startDate, endDate, budgetTotal, type, odooProjectRef, useTemplate } = req.body;
+    if (!name) return res.status(400).json({ error: "Le nom du projet est requis" });
+
+    const projectType = type || "AUTRE";
+    const template = useTemplate === false ? { tasks: [], documents: [] } : getTemplate(projectType);
+
+    const project = await prisma.project.create({
+      data: {
+        name,
+        description,
+        startDate: startDate ? new Date(startDate) : null,
+        endDate: endDate ? new Date(endDate) : null,
+        budgetTotal: budgetTotal ? Number(budgetTotal) : 0,
+        type: projectType,
+        odooProjectRef: odooProjectRef || name,
+        organizationId: req.user.organizationId,
+        columns: {
+          create: DEFAULT_COLUMNS.map((colName, i) => ({ name: colName, order: i })),
+        },
+        members: {
+          create: { userId: req.user.id },
+        },
+        documents: {
+          create: template.documents.map((d) => ({ name: d.name, category: d.category })),
+        },
+      },
+      include: { columns: true },
+    });
+
+    // Injecte les taches type dans la premiere colonne (checklist metier par type de projet)
+    if (template.tasks.length > 0) {
+      const firstColumn = project.columns[0];
+      await prisma.task.createMany({
+        data: template.tasks.map((title, i) => ({
+          projectId: project.id,
+          columnId: firstColumn.id,
+          title,
+          order: i,
+          createdById: req.user.id,
+        })),
+      });
+    }
+
+    const full = await prisma.project.findUnique({
+      where: { id: project.id },
+      include: { columns: { include: { tasks: true } } },
+    });
+
+    res.status(201).json(full);
+  })
+);
+
+// Verifie que le projet demande appartient bien a l'organisation de l'utilisateur
+async function loadProjectOrFail(req, res) {
+  const project = await prisma.project.findFirst({
+    where: { id: req.params.id, organizationId: req.user.organizationId },
+  });
+  if (!project) {
+    res.status(404).json({ error: "Projet introuvable" });
+    return null;
+  }
+  return project;
+}
+
+router.get(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const project = await prisma.project.findFirst({
+      where: { id: req.params.id, organizationId: req.user.organizationId },
+      include: {
+        columns: { orderBy: { order: "asc" }, include: { tasks: { orderBy: { order: "asc" } } } },
+        milestones: { orderBy: { date: "asc" } },
+        budgetItems: { orderBy: { date: "desc" } },
+        members: { include: { user: { select: { id: true, name: true, email: true } } } },
+        documents: { orderBy: { createdAt: "desc" }, include: { subcontractor: true } },
+        equipments: { orderBy: { createdAt: "desc" } },
+        siteReports: { orderBy: { date: "desc" }, include: { photos: true, author: { select: { id: true, name: true } } } },
+      },
+    });
+    if (!project) return res.status(404).json({ error: "Projet introuvable" });
+    res.json(project);
+  })
+);
+
+router.put(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const existing = await loadProjectOrFail(req, res);
+    if (!existing) return;
+
+    const { name, description, startDate, endDate, budgetTotal, status, type, odooProjectRef } = req.body;
+    const project = await prisma.project.update({
+      where: { id: req.params.id },
+      data: {
+        name,
+        description,
+        status,
+        type,
+        odooProjectRef,
+        startDate: startDate ? new Date(startDate) : undefined,
+        endDate: endDate ? new Date(endDate) : undefined,
+        budgetTotal: budgetTotal !== undefined ? Number(budgetTotal) : undefined,
+      },
+    });
+    res.json(project);
+  })
+);
+
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const existing = await loadProjectOrFail(req, res);
+    if (!existing) return;
+
+    await prisma.project.delete({ where: { id: req.params.id } });
+    res.status(204).end();
+  })
+);
+
+// Ajouter un membre de l'organisation au projet
+router.post(
+  "/:id/members",
+  asyncHandler(async (req, res) => {
+    const existing = await loadProjectOrFail(req, res);
+    if (!existing) return;
+
+    const { userId } = req.body;
+    const user = await prisma.user.findFirst({ where: { id: userId, organizationId: req.user.organizationId } });
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable dans cette organisation" });
+
+    const member = await prisma.projectMember.upsert({
+      where: { projectId_userId: { projectId: req.params.id, userId } },
+      update: {},
+      create: { projectId: req.params.id, userId },
+    });
+    res.status(201).json(member);
+  })
+);
+
+module.exports = router;

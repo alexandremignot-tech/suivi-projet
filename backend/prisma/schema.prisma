@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum DocumentStatus {
+  MISSING
+  RECEIVED
+  VALIDATED
+  REJECTED
+}
+
+enum ProjectType {
+  RESEAU_CHALEUR
+  GEOTHERMIE
+  CHAUFFERIE
+  SOUS_STATION
+  AUTRE
+}
+
+// Une organisation = une equipe / entreprise (multi-tenant)
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  createdAt DateTime  @default(now())
+  users     User[]
+  projects  Project[]
+  subcontractors Subcontractor[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String
+  name           String
+  role           Role         @default(MEMBER)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  assignedTasks Task[]          @relation("AssignedTasks")
+  createdTasks  Task[]          @relation("CreatedTasks")
+  projects      ProjectMember[]
+  siteReports   SiteReport[]
+
+  // Integration Google Calendar (OAuth) - rempli une fois l'utilisateur connecte a Google
+  googleRefreshToken String?
+  googleEmail        String?
+}
+
+// Table de jointure pour les membres d'un projet (au sein d'une organisation)
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+}
+
+model Project {
+  id             String       @id @default(uuid())
+  name           String
+  description    String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  startDate      DateTime?
+  endDate        DateTime?
+  budgetTotal    Float        @default(0)
+  status         String       @default("active") // active, archived, completed
+  type           ProjectType  @default(AUTRE)
+  createdAt      DateTime     @default(now())
+
+  // Reference du projet cote Odoo (nom ou numero de commande client), pour retrouver les bons de commande
+  odooProjectRef String?
+  // Identifiant du calendrier Google cree pour ce projet (une fois synchronise)
+  googleCalendarId String?
+
+  columns     Column[]
+  tasks       Task[]
+  milestones  Milestone[]
+  budgetItems BudgetItem[]
+  members     ProjectMember[]
+  documents   Document[]
+  equipments  Equipment[]
+  siteReports SiteReport[]
+}
+
+// Repertoire des sous-traitants de l'organisation (utilisable sur tous les projets)
+model Subcontractor {
+  id             String       @id @default(uuid())
+  name           String
+  specialty      String?
+  contactName    String?
+  email          String?
+  phone          String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  documents Document[]
+}
+
+// Document attendu ou recu pour un projet (dossier As-built, certificats, plans, etc.)
+model Document {
+  id              String          @id @default(uuid())
+  projectId       String
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  category        String          @default("Autre") // ex: Plan As-built, Certificat de conformite, Manuel d'exploitation, Garantie
+  status          DocumentStatus  @default(MISSING)
+  subcontractorId String?
+  subcontractor   Subcontractor?  @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  deadline        DateTime?
+  fileUrl         String?
+  fileName        String?
+  notes           String?
+  receivedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+// Equipement installe sur le projet, avec sa fiche technique et son intervalle de maintenance
+model Equipment {
+  id                     String    @id @default(uuid())
+  projectId              String
+  project                Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                   String
+  category               String? // ex: Chaudiere, Pompe a chaleur, Sous-station, Echangeur
+  manufacturer           String?
+  model                  String?
+  serialNumber           String?
+  technicalSheetUrl      String?
+  technicalSheetFileName String?
+  maintenanceIntervalDays Int?
+  lastMaintenanceDate    DateTime?
+  notes                  String?
+  createdAt              DateTime  @default(now())
+}
+
+// Colonnes personnalisables du tableau Kanban (ex: A faire, En cours, Termine)
+model Column {
+  id        String  @id @default(uuid())
+  name      String
+  order     Int
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+}
+
+model Task {
+  id             String    @id @default(uuid())
+  title          String
+  description    String?
+  projectId      String
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  columnId       String
+  column         Column    @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  order          Int       @default(0)
+  priority       Priority  @default(MEDIUM)
+  startDate      DateTime?
+  dueDate        DateTime?
+  estimatedHours Float?
+  actualHours    Float?
+  estimatedCost  Float?    @default(0)
+  actualCost     Float?    @default(0)
+  assigneeId     String?
+  assignee       User?     @relation("AssignedTasks", fields: [assigneeId], references: [id])
+  createdById    String?
+  createdBy      User?     @relation("CreatedTasks", fields: [createdById], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  dependsOnIds String[] @default([]) // ids des taches dont celle-ci depend (pour le planning)
+}
+
+// Jalons pour la vue planning
+model Milestone {
+  id        String   @id @default(uuid())
+  name      String
+  date      DateTime
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  done      Boolean  @default(false)
+}
+
+// Lignes budgetaires (depenses / recettes) d'un projet
+model BudgetItem {
+  id        String   @id @default(uuid())
+  label     String
+  amount    Float
+  type      String   @default("expense") // expense | income
+  category  String?
+  date      DateTime @default(now())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// Rapport de suivi de chantier : notes (texte ou dictees), points critiques, photos, resume genere
+model SiteReport {
+  id             String        @id @default(uuid())
+  projectId      String
+  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title          String
+  date           DateTime      @default(now())
+  authorId       String?
+  author         User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  notes          String? // notes libres, dictees via reconnaissance vocale ou saisies au clavier
+  criticalPoints String? // points critiques signales sur le chantier
+  aiSummary      String? // rapport mis en forme (genere par IA si une cle est configuree, sinon mise en forme simple)
+  createdAt      DateTime      @default(now())
+
+  photos ReportPhoto[]
+}
+
+// Photo rattachee a un rapport de chantier
+model ReportPhoto {
+  id       String     @id @default(uuid())
+  reportId String
+  report   SiteReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  url      String
+  fileName String?
+  caption  String?
+}
