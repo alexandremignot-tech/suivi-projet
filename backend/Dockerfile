@@ -1,4 +1,9 @@
-FROM node:20-alpine
+FROM node:20-slim
+
+# Prisma a besoin d'OpenSSL pour ses moteurs (schema-engine/query-engine).
+# L'image "slim" (Debian) est plus fiable qu'Alpine pour Prisma, mais necessite
+# quand meme l'installation explicite d'OpenSSL.
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
