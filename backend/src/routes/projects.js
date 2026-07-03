@@ -104,6 +104,7 @@ router.get(
       where: { id: req.params.id, organizationId: req.user.organizationId },
       include: {
         columns: { orderBy: { order: "asc" }, include: { tasks: { orderBy: { order: "asc" } } } },
+        tasks: { orderBy: { order: "asc" } },
         milestones: { orderBy: { date: "asc" } },
         budgetItems: { orderBy: { date: "desc" } },
         members: { include: { user: { select: { id: true, name: true, email: true } } } },
