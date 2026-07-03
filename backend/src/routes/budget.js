@@ -13,7 +13,7 @@ async function assertProjectAccess(req, projectId) {
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { projectId, label, amount, type, category, date } = req.body;
+    const { projectId, lotId, label, amount, type, category, date } = req.body;
     if (!projectId || !label || amount === undefined) {
       return res.status(400).json({ error: "projectId, label et amount sont requis" });
     }
@@ -24,6 +24,7 @@ router.post(
     const item = await prisma.budgetItem.create({
       data: {
         projectId,
+        lotId: lotId || null,
         label,
         amount: Number(amount),
         type: type || "expense",
@@ -43,7 +44,7 @@ router.put(
     const project = await assertProjectAccess(req, item.projectId);
     if (!project) return res.status(403).json({ error: "Acces refuse" });
 
-    const { label, amount, type, category, date } = req.body;
+    const { label, amount, type, category, date, lotId } = req.body;
     const updated = await prisma.budgetItem.update({
       where: { id: req.params.id },
       data: {
@@ -52,6 +53,7 @@ router.put(
         type,
         category,
         date: date ? new Date(date) : undefined,
+        lotId: lotId !== undefined ? lotId || null : undefined,
       },
     });
     res.json(updated);

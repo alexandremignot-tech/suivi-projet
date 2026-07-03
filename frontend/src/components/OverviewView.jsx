@@ -149,8 +149,8 @@ export default function OverviewView({ project }) {
           <div className="divide-y divide-slate-100">
             {lots.map((l) => {
               const lotDocsMissing = (l.documents || []).filter((d) => d.status === "MISSING").length;
-              const lotStatements = l.progressStatements || [];
-              const paidOnLot = lotStatements.reduce((s, ps) => s + ps.amount, 0);
+              const lotBudgetExpenses = budgetItems.filter((b) => b.lotId === l.id && b.type === "expense");
+              const paidOnLot = lotBudgetExpenses.reduce((s, b) => s + b.amount, 0);
               return (
                 <div key={l.id} className="p-4 flex flex-wrap items-center justify-between gap-3 text-sm">
                   <div>

@@ -149,6 +149,7 @@ model Lot {
   progressStatements ProgressStatement[]
   siteReports        SiteReport[]
   tasks              Task[]
+  budgetItems        BudgetItem[]
 }
 
 // Etat d'avancement mensuel d'un sous-traitant sur un lot, qui declenche la facturation
@@ -283,6 +284,8 @@ model BudgetItem {
   date      DateTime @default(now())
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId     String? // si renseigne, ligne budgetaire rattachee a un lot precis
+  lot       Lot?     @relation(fields: [lotId], references: [id], onDelete: SetNull)
 }
 
 // Rapport de suivi de chantier : notes (texte ou dictees), points critiques, photos, resume genere

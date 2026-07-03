@@ -6,7 +6,9 @@ const COLORS = ["#3b5bfd", "#22c55e", "#f97316", "#ef4444", "#a855f7", "#06b6d4"
 
 export default function BudgetView({ project, onChange }) {
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ label: "", amount: "", type: "expense", category: "", date: "" });
+  const [form, setForm] = useState({ label: "", amount: "", type: "expense", category: "", date: "", lotId: "" });
+  const lots = project.lots || [];
+  const lotById = Object.fromEntries(lots.map((l) => [l.id, l]));
 
   const expenses = project.budgetItems.filter((b) => b.type === "expense");
   const income = project.budgetItems.filter((b) => b.type === "income");
@@ -23,8 +25,8 @@ export default function BudgetView({ project, onChange }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    await client.post("/budget-items", { ...form, projectId: project.id });
-    setForm({ label: "", amount: "", type: "expense", category: "", date: "" });
+    await client.post("/budget-items", { ...form, projectId: project.id, lotId: form.lotId || null });
+    setForm({ label: "", amount: "", type: "expense", category: "", date: "", lotId: "" });
     setShowForm(false);
     onChange();
   }
@@ -89,6 +91,18 @@ export default function BudgetView({ project, onChange }) {
               onChange={(e) => setForm({ ...form, date: e.target.value })}
               className="border border-slate-300 rounded-md px-3 py-2 text-sm"
             />
+            <select
+              value={form.lotId}
+              onChange={(e) => setForm({ ...form, lotId: e.target.value })}
+              className="col-span-2 border border-slate-300 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">Aucun lot (depense/recette generale du projet)</option>
+              {lots.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.code} - {l.name}
+                </option>
+              ))}
+            </select>
             <button type="submit" className="col-span-2 bg-brand-600 text-white text-sm py-2 rounded-md">
               Ajouter
             </button>
@@ -104,6 +118,11 @@ export default function BudgetView({ project, onChange }) {
               <div>
                 <span className="font-medium">{b.label}</span>
                 {b.category && <span className="text-slate-400 ml-2">({b.category})</span>}
+                {b.lotId && lotById[b.lotId] && (
+                  <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                    {lotById[b.lotId].code}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-slate-400">{new Date(b.date).toLocaleDateString("fr-FR")}</span>
