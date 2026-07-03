@@ -15,6 +15,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const {
       projectId,
+      lotId,
       columnId,
       title,
       description,
@@ -39,6 +40,7 @@ router.post(
     const task = await prisma.task.create({
       data: {
         projectId,
+        lotId: lotId || null,
         columnId,
         title,
         description,
@@ -82,6 +84,7 @@ router.put(
       title,
       description,
       columnId,
+      lotId,
       order,
       priority,
       startDate,
@@ -100,6 +103,7 @@ router.put(
         title,
         description,
         columnId,
+        lotId: lotId !== undefined ? lotId || null : undefined,
         order,
         priority,
         startDate: startDate !== undefined ? (startDate ? new Date(startDate) : null) : undefined,

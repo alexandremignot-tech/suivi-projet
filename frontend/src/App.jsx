@@ -5,6 +5,8 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import ProjectPage from "./pages/ProjectPage";
 import Subcontractors from "./pages/Subcontractors";
+import AsBuiltExport from "./pages/AsBuiltExport";
+import Alerts from "./pages/Alerts";
 import Layout from "./components/Layout";
 
 function PrivateRoute({ children }) {
@@ -35,6 +37,24 @@ export default function App() {
           <PrivateRoute>
             <Layout>
               <ProjectPage />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/projects/:id/as-built"
+        element={
+          <PrivateRoute>
+            <AsBuiltExport />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/alerts"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <Alerts />
             </Layout>
           </PrivateRoute>
         }

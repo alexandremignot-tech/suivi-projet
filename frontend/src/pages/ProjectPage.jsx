@@ -9,8 +9,10 @@ import EquipmentsView from "../components/EquipmentsView";
 import SiteReportsView from "../components/SiteReportsView";
 import IntegrationsView from "../components/IntegrationsView";
 import LotsView from "../components/LotsView";
+import OverviewView from "../components/OverviewView";
 
 const TABS = [
+  { key: "overview", label: "Vue d'ensemble" },
   { key: "lots", label: "Lots" },
   { key: "kanban", label: "Tableau Kanban" },
   { key: "planning", label: "Planning" },
@@ -25,7 +27,7 @@ export default function ProjectPage() {
   const { id } = useParams();
   const [project, setProject] = useState(null);
   const [members, setMembers] = useState([]);
-  const [tab, setTab] = useState("lots");
+  const [tab, setTab] = useState("overview");
   const [loading, setLoading] = useState(true);
 
   const loadProject = useCallback(async () => {
@@ -61,6 +63,13 @@ export default function ProjectPage() {
         <div>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-sm text-slate-500 max-w-xl">{project.description}</p>
+          <Link
+            to={`/projects/${project.id}/as-built`}
+            target="_blank"
+            className="text-xs text-brand-600 font-medium underline mt-1 inline-block"
+          >
+            Exporter le dossier As-built (imprimable / PDF)
+          </Link>
         </div>
         <div className="flex gap-6 text-sm">
           <Stat label="Avancement" value={`${progress}%`} />
@@ -87,6 +96,7 @@ export default function ProjectPage() {
         ))}
       </div>
 
+      {tab === "overview" && <OverviewView project={project} />}
       {tab === "lots" && <LotsView project={project} onChange={loadProject} />}
       {tab === "kanban" && <KanbanBoard project={project} members={members} onChange={loadProject} />}
       {tab === "planning" && <PlanningView project={project} onChange={loadProject} />}

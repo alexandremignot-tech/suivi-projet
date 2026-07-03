@@ -9,7 +9,8 @@ router.use(requireAuth);
 
 const DEFAULT_COLUMNS = ["A faire", "En cours", "En revue", "Termine"];
 
-// Liste des projets de l'organisation de l'utilisateur connecte
+// Liste des projets de l'organisation de l'utilisateur connecte, avec quelques indicateurs
+// cles (budget consomme, documents manquants) pour distinguer rapidement plusieurs projets
 router.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -17,10 +18,38 @@ router.get(
       where: { organizationId: req.user.organizationId },
       orderBy: { createdAt: "desc" },
       include: {
-        _count: { select: { tasks: true } },
+        _count: { select: { tasks: true, lots: true } },
       },
     });
-    res.json(projects);
+
+    const projectIds = projects.map((p) => p.id);
+
+    const [expenseByProject, missingDocsByProject] = await Promise.all([
+      prisma.budgetItem.groupBy({
+        by: ["projectId", "type"],
+        where: { projectId: { in: projectIds } },
+        _sum: { amount: true },
+      }),
+      prisma.document.groupBy({
+        by: ["projectId"],
+        where: { projectId: { in: projectIds }, status: "MISSING" },
+        _count: true,
+      }),
+    ]);
+
+    const spentByProject = {};
+    for (const row of expenseByProject) {
+      if (row.type === "expense") spentByProject[row.projectId] = row._sum.amount || 0;
+    }
+    const missingByProject = Object.fromEntries(missingDocsByProject.map((r) => [r.projectId, r._count]));
+
+    const enriched = projects.map((p) => ({
+      ...p,
+      totalSpent: spentByProject[p.id] || 0,
+      missingDocuments: missingByProject[p.id] || 0,
+    }));
+
+    res.json(enriched);
   })
 );
 

@@ -148,6 +148,7 @@ model Lot {
   documents          Document[]
   progressStatements ProgressStatement[]
   siteReports        SiteReport[]
+  tasks              Task[]
 }
 
 // Etat d'avancement mensuel d'un sous-traitant sur un lot, qui declenche la facturation
@@ -240,6 +241,8 @@ model Task {
   description    String?
   projectId      String
   project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId          String? // si renseigne, tache rattachee a un lot precis
+  lot            Lot?      @relation(fields: [lotId], references: [id], onDelete: SetNull)
   columnId       String
   column         Column    @relation(fields: [columnId], references: [id], onDelete: Cascade)
   order          Int       @default(0)

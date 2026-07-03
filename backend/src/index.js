@@ -21,6 +21,7 @@ const googleIntegrationRoutes = require("./routes/integrations/google");
 const odooIntegrationRoutes = require("./routes/integrations/odoo");
 const lotRoutes = require("./routes/lots");
 const progressStatementRoutes = require("./routes/progressStatements");
+const dashboardRoutes = require("./routes/dashboard");
 
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -50,6 +51,7 @@ app.use("/api/integrations/google", googleIntegrationRoutes);
 app.use("/api/integrations/odoo", odooIntegrationRoutes);
 app.use("/api/lots", lotRoutes);
 app.use("/api/progress-statements", progressStatementRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // Gestion d'erreurs centralisee
 app.use((err, req, res, next) => {

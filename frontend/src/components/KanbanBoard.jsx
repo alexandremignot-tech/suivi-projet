@@ -50,6 +50,7 @@ export default function KanbanBoard({ project, members, onChange }) {
   }
 
   const memberById = Object.fromEntries(members.map((m) => [m.id, m]));
+  const lotById = Object.fromEntries((project.lots || []).map((l) => [l.id, l]));
 
   return (
     <div>
@@ -98,6 +99,11 @@ export default function KanbanBoard({ project, members, onChange }) {
                             )}
                             {task.assigneeId && memberById[task.assigneeId] && (
                               <p className="text-xs text-slate-500 mt-1">{memberById[task.assigneeId].name}</p>
+                            )}
+                            {task.lotId && lotById[task.lotId] && (
+                              <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 mt-1">
+                                {lotById[task.lotId].code}
+                              </span>
                             )}
                           </div>
                         )}

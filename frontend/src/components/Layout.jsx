@@ -17,6 +17,9 @@ export default function Layout({ children }) {
           <Link to="/" className="font-semibold text-brand-600 text-lg">
             Suivi de Projet
           </Link>
+          <Link to="/alerts" className="text-sm text-slate-600 hover:text-brand-600">
+            Alertes
+          </Link>
           <Link to="/subcontractors" className="text-sm text-slate-600 hover:text-brand-600">
             Sous-traitants
           </Link>

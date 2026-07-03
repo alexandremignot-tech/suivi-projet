@@ -21,6 +21,7 @@ export default function TaskModal({ project, members, columnId, task, onClose, o
     estimatedCost: task?.estimatedCost ?? "",
     actualCost: task?.actualCost ?? "",
     assigneeId: task?.assigneeId || "",
+    lotId: task?.lotId || "",
     columnId: task?.columnId || columnId || project.columns[0].id,
   });
   const [saving, setSaving] = useState(false);
@@ -32,7 +33,7 @@ export default function TaskModal({ project, members, columnId, task, onClose, o
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
-    const payload = { ...form, projectId: project.id, assigneeId: form.assigneeId || null };
+    const payload = { ...form, projectId: project.id, assigneeId: form.assigneeId || null, lotId: form.lotId || null };
     try {
       if (isEdit) {
         await client.put(`/tasks/${task.id}`, payload);
@@ -121,7 +122,21 @@ export default function TaskModal({ project, members, columnId, task, onClose, o
                 ))}
               </select>
             </div>
-            <div />
+            <div>
+              <label className="block text-sm font-medium mb-1">Lot (optionnel)</label>
+              <select
+                value={form.lotId}
+                onChange={(e) => update("lotId", e.target.value)}
+                className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="">Aucun lot</option>
+                {(project.lots || []).map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.code} - {l.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-medium mb-1">Date de debut</label>
               <input

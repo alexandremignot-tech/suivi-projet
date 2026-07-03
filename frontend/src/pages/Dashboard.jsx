@@ -151,8 +151,26 @@ export default function Dashboard() {
                 </span>
               </div>
               <p className="text-sm text-slate-500 line-clamp-2 mb-3">{p.description || "Pas de description"}</p>
+
+              {p.budgetTotal > 0 && (
+                <div className="mb-2">
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span>Budget</span>
+                    <span>{Math.round(((p.totalSpent || 0) / p.budgetTotal) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${(p.totalSpent || 0) / p.budgetTotal > 1 ? "bg-red-500" : "bg-brand-500"}`}
+                      style={{ width: `${Math.min(100, ((p.totalSpent || 0) / p.budgetTotal) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between text-xs text-slate-400">
                 <span>{p._count?.tasks ?? 0} tache(s)</span>
+                <span>{p._count?.lots ?? 0} lot(s)</span>
+                {p.missingDocuments > 0 && <span className="text-red-600 font-medium">{p.missingDocuments} doc(s) manquant(s)</span>}
                 <span className="px-2 py-0.5 rounded-full bg-slate-100">{TYPE_LABELS[p.type] || p.type}</span>
               </div>
             </Link>
