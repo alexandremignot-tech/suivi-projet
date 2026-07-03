@@ -34,6 +34,30 @@ enum ProjectType {
   AUTRE
 }
 
+// Phase d'un lot, calquee sur le parcours reel : appel d'offres -> analyse -> contrat -> suivi -> reception
+enum LotPhase {
+  RFP_RFQ
+  BID_ANALYSIS
+  CONTRACT
+  FOLLOW_UP
+  RECEPTION_DIU
+  DONE
+}
+
+enum ProgressStatementStatus {
+  DRAFT
+  SUBMITTED
+  VALIDATED
+  INVOICED
+}
+
+// Type d'entree de suivi de chantier
+enum SiteReportType {
+  VISITE
+  REUNION_COORDINATION
+  REUNION_CHANTIER
+}
+
 // Une organisation = une equipe / entreprise (multi-tenant)
 model Organization {
   id        String    @id @default(uuid())
@@ -102,6 +126,46 @@ model Project {
   documents   Document[]
   equipments  Equipment[]
   siteReports SiteReport[]
+  lots        Lot[]
+}
+
+// Un lot (ex: "BB1 - Forage geothermique") : decoupage reel d'un projet en sous-contrats,
+// chacun suivant le meme parcours RFP/RFQ -> Analyse -> Contrat -> Suivi -> Reception/DIU
+model Lot {
+  id              String        @id @default(uuid())
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code            String // ex: BB1, BB2...
+  name            String // ex: "Forage / sondes geothermiques"
+  phase           LotPhase      @default(RFP_RFQ)
+  subcontractorId String?
+  subcontractor   Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  contractAmount  Float?
+  order           Int           @default(0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+
+  documents          Document[]
+  progressStatements ProgressStatement[]
+  siteReports        SiteReport[]
+}
+
+// Etat d'avancement mensuel d'un sous-traitant sur un lot, qui declenche la facturation
+model ProgressStatement {
+  id              String                   @id @default(uuid())
+  lotId           String
+  lot             Lot                      @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  subcontractorId String?
+  subcontractor   Subcontractor?           @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  number          Int // EA1, EA2...
+  period          String // ex: "Mars 2026"
+  amount          Float
+  status          ProgressStatementStatus  @default(DRAFT)
+  fileUrl         String?
+  fileName        String?
+  date            DateTime                 @default(now())
+  notes           String?
+  createdAt       DateTime                 @default(now())
 }
 
 // Repertoire des sous-traitants de l'organisation (utilisable sur tous les projets)
@@ -116,7 +180,9 @@ model Subcontractor {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdAt      DateTime     @default(now())
 
-  documents Document[]
+  documents          Document[]
+  lots               Lot[]
+  progressStatements ProgressStatement[]
 }
 
 // Document attendu ou recu pour un projet (dossier As-built, certificats, plans, etc.)
@@ -124,6 +190,8 @@ model Document {
   id              String          @id @default(uuid())
   projectId       String
   project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId           String? // si renseigne, document rattache a un lot precis plutot qu'au projet entier
+  lot             Lot?            @relation(fields: [lotId], references: [id], onDelete: Cascade)
   name            String
   category        String          @default("Autre") // ex: Plan As-built, Certificat de conformite, Manuel d'exploitation, Garantie
   status          DocumentStatus  @default(MISSING)
@@ -216,17 +284,20 @@ model BudgetItem {
 
 // Rapport de suivi de chantier : notes (texte ou dictees), points critiques, photos, resume genere
 model SiteReport {
-  id             String        @id @default(uuid())
+  id             String         @id @default(uuid())
   projectId      String
-  project        Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId          String? // si renseigne, rapport rattache a un lot precis (ex: reunion de coordination BB1)
+  lot            Lot?           @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  type           SiteReportType @default(VISITE)
   title          String
-  date           DateTime      @default(now())
+  date           DateTime       @default(now())
   authorId       String?
-  author         User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  author         User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
   notes          String? // notes libres, dictees via reconnaissance vocale ou saisies au clavier
   criticalPoints String? // points critiques signales sur le chantier
   aiSummary      String? // rapport mis en forme (genere par IA si une cle est configuree, sinon mise en forme simple)
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime       @default(now())
 
   photos ReportPhoto[]
 }

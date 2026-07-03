@@ -25,6 +25,8 @@ services:
         generateValue: true
       - key: PORT
         value: 4000
+      - key: AUTO_LOGIN
+        value: "true"
       - key: CORS_ORIGIN
         sync: false
       - key: ANTHROPIC_API_KEY

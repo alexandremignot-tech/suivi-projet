@@ -22,15 +22,16 @@ Application web de suivi de projet pour equipes techniques (reseaux de chaleur, 
 ## Fonctionnalites
 
 - Creation d'une organisation (equipe) et invitation de membres via l'identifiant de l'organisation
-- Projets types au choix (reseau de chaleur, geothermie, chaufferie, sous-station) : une checklist de taches et de documents attendus adaptee au metier est generee automatiquement a la creation
+- Projets types au choix (reseau de chaleur, geothermie, chaufferie, sous-station) : une checklist de lots, de taches et de documents attendus adaptee au metier est generee automatiquement a la creation
+- **Lots (Building Blocks)** : chaque projet est decoupe en lots (ex: BB1 - Forage geothermique), chacun suivant le meme parcours RFP/RFQ -> Analyse des offres -> Contrat -> Suivi -> Reception/DIU, avec ses propres documents et ses **Etats d'avancement** mensuels par sous-traitant (base sur un vrai fonctionnement de chantier)
 - Tableau Kanban avec colonnes personnalisables et glisser-deposer des taches
 - Taches avec priorite, dates de debut/echeance, heures et couts estimes/reels, assignation a un membre
 - Vue planning : chronologie des taches et jalons de projet
 - Suivi budgetaire : lignes de depenses/recettes, repartition par categorie (graphique), comparaison budget prevu vs depense
-- Annuaire des sous-traitants de l'organisation (specialite, contact), reutilisable sur tous les projets
-- Documents & As-built : checklist des documents attendus par projet, statut (manquant/recu/valide/rejete), sous-traitant responsable, date limite avec alerte de retard, upload de fichier
+- Annuaire des sous-traitants de l'organisation (specialite, contact), reutilisable sur tous les projets et tous les lots
+- Documents transverses au projet : PEB, plan de securite-sante (CSS), DIU global, dossier administratif/securite, avec statut, date limite et alerte de retard (les documents propres a un lot sont geres dans la fiche du lot)
 - Equipements & Maintenance : fiche par equipement (fabricant, modele, fiche technique uploadee), intervalle de maintenance et calcul automatique de la prochaine echeance
-- Suivi de chantier : rapports avec notes (saisies ou dictees au micro), points critiques et photos, mis en forme automatiquement en rapport structure (genere par IA si une cle Anthropic est configuree)
+- Suivi de chantier : visites, reunions de coordination et reunions de chantier avec notes (saisies ou dictees au micro), points critiques et photos, mis en forme automatiquement en rapport structure (genere par IA si une cle Anthropic est configuree), rattachables a un lot
 - Integrations : synchronisation des echeances vers Google Calendar, consultation des bons de commande Odoo lies au projet
 
 ## Demarrage avec Docker (ligne de commande)
@@ -136,10 +137,12 @@ suivi-projet/
 - **Column** / **Task** : tableau Kanban et taches (priorite, dates, heures, couts, assignation)
 - **Milestone** : un jalon de planning
 - **BudgetItem** : une ligne de depense ou recette
-- **Subcontractor** : un sous-traitant de l'organisation (annuaire partage entre projets)
-- **Document** : un document attendu/recu pour un projet (dossier As-built), avec statut, sous-traitant, deadline, fichier
+- **Subcontractor** : un sous-traitant de l'organisation (annuaire partage entre projets et lots)
+- **Lot** : un sous-contrat (ex: BB1 - Forage) avec sa phase (RFP/RFQ, Analyse, Contrat, Suivi, Reception/DIU, Termine)
+- **ProgressStatement** : un etat d'avancement mensuel (EA1, EA2...) d'un sous-traitant sur un lot
+- **Document** : un document attendu/recu, rattache au projet (transverse) ou a un lot precis, avec statut, sous-traitant, deadline, fichier
 - **Equipment** : un equipement installe sur un projet, avec fiche technique et intervalle de maintenance
-- **SiteReport** / **ReportPhoto** : rapport de suivi de chantier avec ses photos
+- **SiteReport** / **ReportPhoto** : rapport de suivi de chantier (visite, reunion) avec ses photos, rattachable a un lot
 
 Les fichiers uploades (documents, fiches techniques, photos) sont stockes sur le serveur backend dans `/app/uploads` (volume Docker `uploads_data`, persiste entre redemarrages).
 

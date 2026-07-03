@@ -48,14 +48,28 @@ function VoiceDictationButton({ onResult }) {
   );
 }
 
+const TYPE_LABELS = {
+  VISITE: "Visite de chantier",
+  REUNION_COORDINATION: "Reunion de coordination",
+  REUNION_CHANTIER: "Reunion de chantier",
+};
+
 export default function SiteReportsView({ project, onChange }) {
   const [showForm, setShowForm] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [form, setForm] = useState({ title: "", date: new Date().toISOString().slice(0, 10), notes: "", criticalPoints: "" });
+  const [form, setForm] = useState({
+    title: "",
+    type: "VISITE",
+    lotId: "",
+    date: new Date().toISOString().slice(0, 10),
+    notes: "",
+    criticalPoints: "",
+  });
   const [pendingPhotos, setPendingPhotos] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
 
   const reports = project.siteReports || [];
+  const lots = project.lots || [];
 
   async function handleAddPhotos(files) {
     const newPhotos = Array.from(files).map((file) => ({ file, caption: "" }));
@@ -78,11 +92,19 @@ export default function SiteReportsView({ project, onChange }) {
 
       const { data: report } = await client.post("/site-reports", {
         ...form,
+        lotId: form.lotId || null,
         projectId: project.id,
         photos: uploadedPhotos,
       });
 
-      setForm({ title: "", date: new Date().toISOString().slice(0, 10), notes: "", criticalPoints: "" });
+      setForm({
+        title: "",
+        type: "VISITE",
+        lotId: "",
+        date: new Date().toISOString().slice(0, 10),
+        notes: "",
+        criticalPoints: "",
+      });
       setPendingPhotos([]);
       setShowForm(false);
       setExpandedId(report.id);
@@ -128,6 +150,29 @@ export default function SiteReportsView({ project, onChange }) {
               onChange={(e) => setForm({ ...form, date: e.target.value })}
               className="border border-slate-300 rounded-md px-3 py-2 text-sm"
             />
+            <select
+              value={form.type}
+              onChange={(e) => setForm({ ...form, type: e.target.value })}
+              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
+            >
+              {Object.entries(TYPE_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            <select
+              value={form.lotId}
+              onChange={(e) => setForm({ ...form, lotId: e.target.value })}
+              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">Lot concerne (optionnel)</option>
+              {lots.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.code} - {l.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -196,7 +241,11 @@ export default function SiteReportsView({ project, onChange }) {
               <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpandedId(expanded ? null : r.id)}>
                 <div>
                   <span className="font-medium text-sm">{r.title}</span>
+                  <span className="text-xs text-slate-400 ml-2">{TYPE_LABELS[r.type] || r.type}</span>
                   <span className="text-xs text-slate-400 ml-2">{new Date(r.date).toLocaleDateString("fr-FR")}</span>
+                  {r.lotId && lots.find((l) => l.id === r.lotId) && (
+                    <span className="text-xs text-slate-400 ml-2">· {lots.find((l) => l.id === r.lotId).code}</span>
+                  )}
                   {r.author && <span className="text-xs text-slate-400 ml-2">· {r.author.name}</span>}
                 </div>
                 <span className="text-xs text-brand-600">{expanded ? "Reduire" : "Voir le rapport"}</span>

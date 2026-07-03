@@ -15,7 +15,7 @@ async function assertProjectAccess(req, projectId) {
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { projectId, title, date, notes, criticalPoints, photos } = req.body;
+    const { projectId, lotId, type, title, date, notes, criticalPoints, photos } = req.body;
     if (!projectId || !title) return res.status(400).json({ error: "projectId et title sont requis" });
 
     const project = await assertProjectAccess(req, projectId);
@@ -35,6 +35,8 @@ router.post(
     const report = await prisma.siteReport.create({
       data: {
         projectId,
+        lotId: lotId || null,
+        type: type || "VISITE",
         title,
         date: reportDate,
         notes,
@@ -93,10 +95,17 @@ router.put(
     const existing = await loadWithAccess(req, res);
     if (!existing) return;
 
-    const { title, date, notes, criticalPoints } = req.body;
+    const { title, date, notes, criticalPoints, lotId, type } = req.body;
     const updated = await prisma.siteReport.update({
       where: { id: req.params.id },
-      data: { title, date: date ? new Date(date) : undefined, notes, criticalPoints },
+      data: {
+        title,
+        date: date ? new Date(date) : undefined,
+        notes,
+        criticalPoints,
+        lotId: lotId !== undefined ? lotId || null : undefined,
+        type,
+      },
     });
     res.json(updated);
   })

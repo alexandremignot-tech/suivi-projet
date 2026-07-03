@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
 import client, { fileUrl } from "../api/client";
 
+// Documents transverses au projet (pas rattaches a un lot precis) : etudes reglementaires,
+// securite, dossier d'intervention ulterieure global. Les documents par lot (RFP/RFQ, contrat,
+// reception...) se gerent depuis l'onglet Lots.
 const CATEGORIES = [
+  "PEB",
+  "CSS",
+  "DIU global",
+  "Admin / Securite",
   "Plan As-built",
   "Certificat de conformite",
   "Manuel d'exploitation",
   "Garantie constructeur",
-  "PV de reception",
-  "Notice de securite",
-  "Fiche technique",
   "Autre",
 ];
 
@@ -48,7 +52,9 @@ export default function DocumentsView({ project, onChange }) {
     client.get("/subcontractors").then(({ data }) => setSubcontractors(data));
   }, []);
 
-  const documents = project.documents || [];
+  // N'affiche ici que les documents transverses au projet ; les documents propres a un lot
+  // se gerent depuis la fiche du lot concerne (onglet Lots)
+  const documents = (project.documents || []).filter((d) => !d.lotId);
   const missingCount = documents.filter((d) => d.status === "MISSING").length;
   const overdueCount = documents.filter(isOverdue).length;
 

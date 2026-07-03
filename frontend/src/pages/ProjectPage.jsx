@@ -8,12 +8,14 @@ import DocumentsView from "../components/DocumentsView";
 import EquipmentsView from "../components/EquipmentsView";
 import SiteReportsView from "../components/SiteReportsView";
 import IntegrationsView from "../components/IntegrationsView";
+import LotsView from "../components/LotsView";
 
 const TABS = [
+  { key: "lots", label: "Lots" },
   { key: "kanban", label: "Tableau Kanban" },
   { key: "planning", label: "Planning" },
   { key: "budget", label: "Budget" },
-  { key: "documents", label: "Documents & As-built" },
+  { key: "documents", label: "Documents transverses" },
   { key: "equipments", label: "Equipements & Maintenance" },
   { key: "chantier", label: "Suivi de chantier" },
   { key: "integrations", label: "Integrations" },
@@ -23,7 +25,7 @@ export default function ProjectPage() {
   const { id } = useParams();
   const [project, setProject] = useState(null);
   const [members, setMembers] = useState([]);
-  const [tab, setTab] = useState("kanban");
+  const [tab, setTab] = useState("lots");
   const [loading, setLoading] = useState(true);
 
   const loadProject = useCallback(async () => {
@@ -85,6 +87,7 @@ export default function ProjectPage() {
         ))}
       </div>
 
+      {tab === "lots" && <LotsView project={project} onChange={loadProject} />}
       {tab === "kanban" && <KanbanBoard project={project} members={members} onChange={loadProject} />}
       {tab === "planning" && <PlanningView project={project} onChange={loadProject} />}
       {tab === "budget" && <BudgetView project={project} onChange={loadProject} />}

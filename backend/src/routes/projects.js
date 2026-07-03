@@ -2,7 +2,7 @@ const express = require("express");
 const prisma = require("../db");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
-const { getTemplate } = require("../utils/projectTemplates");
+const { getTemplate, getLotTemplate } = require("../utils/projectTemplates");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -52,6 +52,12 @@ router.post(
         documents: {
           create: template.documents.map((d) => ({ name: d.name, category: d.category })),
         },
+        lots: {
+          create:
+            useTemplate === false
+              ? []
+              : getLotTemplate(projectType).map((lot, i) => ({ code: lot.code, name: lot.name, order: i })),
+        },
       },
       include: { columns: true },
     });
@@ -72,7 +78,7 @@ router.post(
 
     const full = await prisma.project.findUnique({
       where: { id: project.id },
-      include: { columns: { include: { tasks: true } } },
+      include: { columns: { include: { tasks: true } }, lots: true },
     });
 
     res.status(201).json(full);
@@ -104,6 +110,14 @@ router.get(
         documents: { orderBy: { createdAt: "desc" }, include: { subcontractor: true } },
         equipments: { orderBy: { createdAt: "desc" } },
         siteReports: { orderBy: { date: "desc" }, include: { photos: true, author: { select: { id: true, name: true } } } },
+        lots: {
+          orderBy: { order: "asc" },
+          include: {
+            subcontractor: true,
+            documents: { orderBy: { createdAt: "desc" } },
+            progressStatements: { orderBy: { number: "desc" } },
+          },
+        },
       },
     });
     if (!project) return res.status(404).json({ error: "Projet introuvable" });

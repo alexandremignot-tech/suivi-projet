@@ -8,6 +8,62 @@ const COMMON_DOCUMENTS = [
   { name: "Notice de securite / consignes", category: "Notice de securite" },
 ];
 
+// Documents transverses au projet (pas lies a un lot particulier), inspires de dossiers
+// reglementaires reels : PEB (performance energetique du batiment), CSS (plan securite-sante),
+// DIU global (dossier d'intervention ulterieure), Admin/Securite.
+const TRANSVERSE_DOCUMENTS = [
+  { name: "Etude PEB", category: "PEB" },
+  { name: "Plan de securite et de sante (CSS)", category: "CSS" },
+  { name: "Dossier d'intervention ulterieure (DIU) global", category: "DIU global" },
+  { name: "Dossier administratif et securite", category: "Admin / Securite" },
+];
+
+// Templates de lots (Building Blocks) par type de projet : chaque lot suivra le parcours
+// RFP/RFQ -> Analyse des offres -> Contrat -> Suivi -> Reception/DIU (voir enum LotPhase).
+const LOT_TEMPLATES = {
+  RESEAU_CHALEUR: [
+    { code: "BB1", name: "Forage / sondes geothermiques" },
+    { code: "BB2", name: "Chaufferie / Energy Center" },
+    { code: "BB3", name: "Reseau de distribution" },
+    { code: "BB4", name: "Hydraulique / Regulation" },
+    { code: "BB5", name: "Sous-stations clientes" },
+    { code: "BB6", name: "Electricite" },
+    { code: "BB7", name: "Genie civil / Batiment technique" },
+  ],
+  GEOTHERMIE: [
+    { code: "BB1", name: "Forage / sondes geothermiques" },
+    { code: "BB2", name: "Pompes a chaleur et hydraulique" },
+    { code: "BB3", name: "Regulation" },
+    { code: "BB4", name: "Electricite" },
+    { code: "BB5", name: "Genie civil" },
+  ],
+  CHAUFFERIE: [
+    { code: "BB1", name: "Chaudieres et generation" },
+    { code: "BB2", name: "Hydraulique / Distribution" },
+    { code: "BB3", name: "Regulation" },
+    { code: "BB4", name: "Electricite" },
+    { code: "BB5", name: "Genie civil / Batiment" },
+  ],
+  SOUS_STATION: [
+    { code: "BB1", name: "Echangeur et hydraulique" },
+    { code: "BB2", name: "Regulation" },
+    { code: "BB3", name: "Electricite" },
+    { code: "BB4", name: "Raccordement reseau" },
+  ],
+  AUTRE: [],
+};
+
+// Categories de documents par defaut a l'interieur d'un lot, alignees sur le parcours reel
+const LOT_DOCUMENT_CATEGORIES = [
+  "RFP / RFQ",
+  "Analyse des offres",
+  "Contrat",
+  "Plans / Fiche technique",
+  "Permitting",
+  "Reception / DIU",
+  "Livrables",
+];
+
 const TEMPLATES = {
   RESEAU_CHALEUR: {
     tasks: [
@@ -19,12 +75,7 @@ const TEMPLATES = {
       "Isolation et calorifugeage",
       "Mise en service et equilibrage hydraulique",
     ],
-    documents: [
-      { name: "Plan As-built du trace de reseau", category: "Plan As-built" },
-      { name: "Certificat de conformite des soudures", category: "Certificat de conformite" },
-      { name: "Rapport d'essais de pression", category: "Autre" },
-      ...COMMON_DOCUMENTS,
-    ],
+    documents: [...TRANSVERSE_DOCUMENTS],
   },
   GEOTHERMIE: {
     tasks: [
@@ -36,12 +87,7 @@ const TEMPLATES = {
       "Tests de performance thermique",
       "Mise en service",
     ],
-    documents: [
-      { name: "Rapport de forage geotechnique", category: "Autre" },
-      { name: "Plan As-built des sondes/puits", category: "Plan As-built" },
-      { name: "Certificat de conformite forage", category: "Certificat de conformite" },
-      ...COMMON_DOCUMENTS,
-    ],
+    documents: [...TRANSVERSE_DOCUMENTS],
   },
   CHAUFFERIE: {
     tasks: [
@@ -53,12 +99,7 @@ const TEMPLATES = {
       "Essais et mise en service",
       "Formation de l'exploitant",
     ],
-    documents: [
-      { name: "Plan As-built de la chaufferie", category: "Plan As-built" },
-      { name: "Certificat de conformite gaz/combustible", category: "Certificat de conformite" },
-      { name: "Fiches techniques des equipements", category: "Fiche technique" },
-      ...COMMON_DOCUMENTS,
-    ],
+    documents: [...TRANSVERSE_DOCUMENTS],
   },
   SOUS_STATION: {
     tasks: [
@@ -70,12 +111,7 @@ const TEMPLATES = {
       "Parametrage de la regulation",
       "Mise en service et remise au client",
     ],
-    documents: [
-      { name: "Plan As-built de la sous-station", category: "Plan As-built" },
-      { name: "Fiche technique de l'echangeur", category: "Fiche technique" },
-      { name: "PV de mise en service", category: "PV de reception" },
-      ...COMMON_DOCUMENTS,
-    ],
+    documents: [...TRANSVERSE_DOCUMENTS],
   },
   AUTRE: {
     tasks: [],
@@ -87,4 +123,8 @@ function getTemplate(type) {
   return TEMPLATES[type] || TEMPLATES.AUTRE;
 }
 
-module.exports = { getTemplate, TEMPLATES };
+function getLotTemplate(type) {
+  return LOT_TEMPLATES[type] || LOT_TEMPLATES.AUTRE;
+}
+
+module.exports = { getTemplate, getLotTemplate, TEMPLATES, LOT_TEMPLATES, LOT_DOCUMENT_CATEGORIES, TRANSVERSE_DOCUMENTS };
