@@ -135,7 +135,14 @@ router.get(
         columns: { orderBy: { order: "asc" }, include: { tasks: { orderBy: { order: "asc" } } } },
         tasks: { orderBy: { order: "asc" } },
         milestones: { orderBy: { date: "asc" } },
-        budgetItems: { orderBy: { date: "desc" } },
+        budgetItems: {
+          orderBy: { date: "desc" },
+          include: {
+            subcontractor: { select: { id: true, name: true } },
+            lot: { select: { id: true, code: true, name: true } },
+            invoices: { select: { id: true, label: true, amount: true, status: true } },
+          },
+        },
         members: { include: { user: { select: { id: true, name: true, email: true } } } },
         documents: { orderBy: { createdAt: "desc" }, include: { subcontractor: true } },
         equipments: { orderBy: { createdAt: "desc" } },

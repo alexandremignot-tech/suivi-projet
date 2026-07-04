@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import client from "../api/client";
 import KanbanBoard from "../components/KanbanBoard";
 import PlanningView from "../components/PlanningView";
-import BudgetView from "../components/BudgetView";
+import FinanceView from "../components/FinanceView";
 import DocumentsView from "../components/DocumentsView";
 import EquipmentsView from "../components/EquipmentsView";
 import SiteReportsView from "../components/SiteReportsView";
@@ -16,7 +16,7 @@ const TABS = [
   { key: "lots", label: "Lots" },
   { key: "kanban", label: "Tableau Kanban" },
   { key: "planning", label: "Planning" },
-  { key: "budget", label: "Budget" },
+  { key: "budget", label: "Finances" },
   { key: "documents", label: "Documents transverses" },
   { key: "equipments", label: "Equipements & Maintenance" },
   { key: "chantier", label: "Suivi de chantier" },
@@ -100,7 +100,7 @@ export default function ProjectPage() {
       {tab === "lots" && <LotsView project={project} onChange={loadProject} />}
       {tab === "kanban" && <KanbanBoard project={project} members={members} onChange={loadProject} />}
       {tab === "planning" && <PlanningView project={project} onChange={loadProject} />}
-      {tab === "budget" && <BudgetView project={project} onChange={loadProject} />}
+      {tab === "budget" && <FinanceView project={project} onChange={loadProject} />}
       {tab === "documents" && <DocumentsView project={project} onChange={loadProject} />}
       {tab === "equipments" && <EquipmentsView project={project} onChange={loadProject} />}
       {tab === "chantier" && <SiteReportsView project={project} onChange={loadProject} />}

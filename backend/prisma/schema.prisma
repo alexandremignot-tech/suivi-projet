@@ -58,6 +58,28 @@ enum SiteReportType {
   REUNION_CHANTIER
 }
 
+// Nature d'une ligne financiere, alignee sur le vrai fichier de suivi (onglets IN/OUT) :
+// cote depenses on distingue Commande/Avenant/Risque/Facture, cote recettes Contrat/Avenant/Risque/Subside
+enum FinancialEntryType {
+  PURCHASE_ORDER // Commande
+  AMENDMENT // Avenant
+  RISK // Risque
+  INVOICE // Facture
+  CONTRACT // Contrat (recette)
+  SUBSIDY // Subside (recette)
+  OTHER
+}
+
+// Pipeline de statut, commun aux depenses (engage -> facture -> valide -> paye)
+// et aux recettes (engage -> facture -> valide -> recu)
+enum FinancialEntryStatus {
+  DRAFT
+  ENGAGED
+  SUBMITTED
+  VALIDATED
+  PAID
+}
+
 // Une organisation = une equipe / entreprise (multi-tenant)
 model Organization {
   id        String    @id @default(uuid())
@@ -185,6 +207,7 @@ model Subcontractor {
   documents          Document[]
   lots               Lot[]
   progressStatements ProgressStatement[]
+  budgetItems        BudgetItem[]
 }
 
 // Document attendu ou recu pour un projet (dossier As-built, certificats, plans, etc.)
@@ -279,13 +302,26 @@ model BudgetItem {
   id        String   @id @default(uuid())
   label     String
   amount    Float
-  type      String   @default("expense") // expense | income
+  type      String   @default("expense") // expense | income (sens du flux)
   category  String?
   date      DateTime @default(now())
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   lotId     String? // si renseigne, ligne budgetaire rattachee a un lot precis
   lot       Lot?     @relation(fields: [lotId], references: [id], onDelete: SetNull)
+
+  // Registre financier enrichi : nature de la ligne, statut, societe, piece jointe
+  entryType       FinancialEntryType   @default(PURCHASE_ORDER)
+  status          FinancialEntryStatus @default(ENGAGED)
+  subcontractorId String?
+  subcontractor   Subcontractor?       @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  invoiceNumber   String?
+  fileUrl         String?
+  fileName        String?
+  // Si cette ligne est une facture, peut pointer vers la commande dont elle decoule
+  relatedEntryId String?
+  relatedEntry   BudgetItem?  @relation("EntryToInvoices", fields: [relatedEntryId], references: [id], onDelete: SetNull)
+  invoices       BudgetItem[] @relation("EntryToInvoices")
 }
 
 // Rapport de suivi de chantier : notes (texte ou dictees), points critiques, photos, resume genere
