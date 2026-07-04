@@ -11,7 +11,7 @@ export default function Alerts() {
 
   if (!data) return <div className="p-8 text-center text-slate-500">Chargement...</div>;
 
-  const { missingDocuments, overdueDocuments, maintenanceDue, pendingStatements, upcomingMilestones } = data;
+  const { missingDocuments, overdueDocuments, maintenanceDue, pendingStatements, upcomingMilestones, overdueMilestones } = data;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
@@ -99,6 +99,22 @@ export default function Alerts() {
             <span className="text-xs text-slate-500">
               {s.period} · {s.amount.toLocaleString("fr-FR")} EUR
             </span>
+          </Row>
+        ))}
+      </Section>
+
+      <Section
+        title={`Jalons deja depasses, non coches (${overdueMilestones.length})`}
+        empty="Aucun jalon en retard."
+        highlight="red"
+      >
+        {overdueMilestones.map((m) => (
+          <Row key={m.id}>
+            <Link to={`/projects/${m.project.id}`} className="font-medium hover:underline">
+              {m.name}
+            </Link>
+            <span className="text-slate-400">{m.project.name}</span>
+            <span className="text-red-600 text-xs">{new Date(m.date).toLocaleDateString("fr-FR")}</span>
           </Row>
         ))}
       </Section>

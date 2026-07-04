@@ -63,7 +63,7 @@ router.put(
         name,
         phase,
         subcontractorId: subcontractorId !== undefined ? subcontractorId || null : undefined,
-        contractAmount: contractAmount !== undefined ? Number(contractAmount) : undefined,
+        contractAmount: contractAmount !== undefined ? Number(contractAmount) || null : undefined,
         notes,
         order,
       },

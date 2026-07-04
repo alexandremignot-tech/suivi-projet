@@ -59,12 +59,18 @@ router.get(
       })
       .filter((eq) => eq.nextMaintenance < now);
 
+    // Separe les jalons deja depasses (non coches) des jalons a venir sous 30 jours,
+    // pour ne pas les melanger sous la meme etiquette dans la vue Alertes
+    const overdueMilestones = upcomingMilestones.filter((m) => new Date(m.date) < now);
+    const trulyUpcomingMilestones = upcomingMilestones.filter((m) => new Date(m.date) >= now);
+
     res.json({
       missingDocuments,
       overdueDocuments,
       maintenanceDue,
       pendingStatements,
-      upcomingMilestones,
+      upcomingMilestones: trulyUpcomingMilestones,
+      overdueMilestones,
     });
   })
 );
