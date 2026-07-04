@@ -63,13 +63,21 @@ export default function ProjectPage() {
         <div>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="text-sm text-slate-500 max-w-xl">{project.description}</p>
-          <Link
-            to={`/projects/${project.id}/as-built`}
-            target="_blank"
-            className="text-xs text-brand-600 font-medium underline mt-1 inline-block"
-          >
-            Exporter le dossier As-built (imprimable / PDF)
-          </Link>
+          <div className="flex gap-4 mt-1">
+            <Link
+              to={`/projects/${project.id}/diu`}
+              className="text-xs text-brand-600 font-medium underline inline-block"
+            >
+              Dossier DIU / as-built par lot (assemblage PDF)
+            </Link>
+            <Link
+              to={`/projects/${project.id}/as-built`}
+              target="_blank"
+              className="text-xs text-slate-500 font-medium underline inline-block"
+            >
+              Index des documents (imprimable)
+            </Link>
+          </div>
         </div>
         <div className="flex gap-6 text-sm">
           <Stat label="Avancement" value={`${progress}%`} />

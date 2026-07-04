@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import ProjectPage from "./pages/ProjectPage";
 import Subcontractors from "./pages/Subcontractors";
 import AsBuiltExport from "./pages/AsBuiltExport";
+import DiuExport from "./pages/DiuExport";
 import Alerts from "./pages/Alerts";
 import Layout from "./components/Layout";
 
@@ -46,6 +47,14 @@ export default function App() {
         element={
           <PrivateRoute>
             <AsBuiltExport />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/projects/:id/diu"
+        element={
+          <PrivateRoute>
+            <DiuExport />
           </PrivateRoute>
         }
       />
