@@ -1,5 +1,6 @@
 import { useState } from "react";
 import client, { fileUrl } from "../api/client";
+import UnitsGrid from "./UnitsGrid";
 
 const DOCUMENT_CATEGORIES = [
   "RFP / RFQ",
@@ -37,6 +38,7 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
 
   const documents = (project.documents || []).filter((d) => d.lotId === lot.id);
   const statements = lot.progressStatements || [];
+  const equipments = (project.equipments || []).filter((e) => e.lotId === lot.id);
 
   async function handleSaveLot(e) {
     e.preventDefault();
@@ -108,7 +110,7 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4 py-8">
-      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="p-6 space-y-6">
           <form onSubmit={handleSaveLot} className="space-y-3">
             <div className="flex items-center justify-between">
@@ -311,6 +313,53 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
                 </div>
               ))}
             </div>
+          </div>
+
+          {equipments.length > 0 && (
+            <div>
+              <h3 className="font-medium text-sm mb-2">Equipements de ce lot</h3>
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-md">
+                {equipments.map((eq) => (
+                  <div key={eq.id} className="px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">
+                        {eq.name}
+                        {eq.quantity > 1 ? ` (x${eq.quantity})` : ""}
+                      </span>
+                      {eq.technicalSheetUrl && (
+                        <a
+                          href={fileUrl(eq.technicalSheetUrl)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-brand-600 text-xs underline flex-shrink-0"
+                        >
+                          Fiche technique
+                        </a>
+                      )}
+                    </div>
+                    {eq.specs && eq.specs.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {eq.specs.map((s, i) => (
+                          <span key={i} className="text-[11px] bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
+                            <span className="text-slate-500">{s.label}</span>
+                            {s.label && s.value ? ": " : ""}
+                            <span className="font-medium text-slate-700">{s.value}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Gerer/ajouter des equipements depuis l'onglet "Equipements &amp; fiches techniques".
+              </p>
+            </div>
+          )}
+
+          <div>
+            <h3 className="font-medium text-sm mb-2">Unites repetables (ex: maisons raccordees)</h3>
+            <UnitsGrid lot={lot} subcontractors={subcontractors} onChange={onChange} />
           </div>
         </div>
       </div>

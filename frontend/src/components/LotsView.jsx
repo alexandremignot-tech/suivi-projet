@@ -123,6 +123,12 @@ export default function LotsView({ project, onChange }) {
                                 {Number(lot.contractAmount).toLocaleString("fr-FR")} EUR
                               </p>
                             )}
+                            {(lot.units || []).length > 0 && (
+                              <p className="text-xs text-slate-400 mt-1">
+                                {lot.units.filter((u) => (u.steps || []).every((s) => s.status === "DONE")).length}/
+                                {lot.units.length} unites terminees
+                              </p>
+                            )}
                           </div>
                         )}
                       </Draggable>

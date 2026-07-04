@@ -10,18 +10,32 @@ async function assertProjectAccess(req, projectId) {
   return prisma.project.findFirst({ where: { id: projectId, organizationId: req.user.organizationId } });
 }
 
+// Nettoie la liste de specs envoyee par le formulaire (tableau de {label, value}) : on retire
+// les lignes vides pour ne pas polluer la fiche technique avec des paires label/value blanches.
+function cleanSpecs(specs) {
+  if (!Array.isArray(specs)) return undefined;
+  const filtered = specs
+    .map((s) => ({ label: (s?.label || "").trim(), value: (s?.value || "").trim() }))
+    .filter((s) => s.label || s.value);
+  return filtered.length > 0 ? filtered : null;
+}
+
 router.post(
   "/",
   asyncHandler(async (req, res) => {
     const {
       projectId,
+      lotId,
       name,
       category,
       manufacturer,
       model,
       serialNumber,
+      quantity,
+      location,
       technicalSheetUrl,
       technicalSheetFileName,
+      specs,
       maintenanceIntervalDays,
       lastMaintenanceDate,
       notes,
@@ -32,16 +46,25 @@ router.post(
     const project = await assertProjectAccess(req, projectId);
     if (!project) return res.status(404).json({ error: "Projet introuvable" });
 
+    if (lotId) {
+      const lot = await prisma.lot.findFirst({ where: { id: lotId, projectId } });
+      if (!lot) return res.status(400).json({ error: "Lot introuvable pour ce projet" });
+    }
+
     const equipment = await prisma.equipment.create({
       data: {
         projectId,
+        lotId: lotId || null,
         name,
         category,
         manufacturer,
         model,
         serialNumber,
+        quantity: quantity ? Number(quantity) || 1 : 1,
+        location,
         technicalSheetUrl,
         technicalSheetFileName,
+        specs: cleanSpecs(specs) ?? undefined,
         maintenanceIntervalDays: maintenanceIntervalDays ? Number(maintenanceIntervalDays) : null,
         lastMaintenanceDate: lastMaintenanceDate ? new Date(lastMaintenanceDate) : null,
         notes,
@@ -72,28 +95,41 @@ router.put(
     if (!existing) return;
 
     const {
+      lotId,
       name,
       category,
       manufacturer,
       model,
       serialNumber,
+      quantity,
+      location,
       technicalSheetUrl,
       technicalSheetFileName,
+      specs,
       maintenanceIntervalDays,
       lastMaintenanceDate,
       notes,
     } = req.body;
 
+    if (lotId) {
+      const lot = await prisma.lot.findFirst({ where: { id: lotId, projectId: existing.projectId } });
+      if (!lot) return res.status(400).json({ error: "Lot introuvable pour ce projet" });
+    }
+
     const updated = await prisma.equipment.update({
       where: { id: req.params.id },
       data: {
+        lotId: lotId !== undefined ? lotId || null : undefined,
         name,
         category,
         manufacturer,
         model,
         serialNumber,
+        quantity: quantity !== undefined ? Number(quantity) || 1 : undefined,
+        location: location !== undefined ? location : undefined,
         technicalSheetUrl: technicalSheetUrl !== undefined ? technicalSheetUrl : undefined,
         technicalSheetFileName: technicalSheetFileName !== undefined ? technicalSheetFileName : undefined,
+        specs: specs !== undefined ? cleanSpecs(specs) : undefined,
         maintenanceIntervalDays:
           maintenanceIntervalDays !== undefined ? Number(maintenanceIntervalDays) || null : undefined,
         lastMaintenanceDate:

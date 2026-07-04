@@ -145,7 +145,10 @@ router.get(
         },
         members: { include: { user: { select: { id: true, name: true, email: true } } } },
         documents: { orderBy: { createdAt: "desc" }, include: { subcontractor: true } },
-        equipments: { orderBy: { createdAt: "desc" } },
+        equipments: {
+          orderBy: { createdAt: "desc" },
+          include: { lot: { select: { id: true, code: true, name: true } } },
+        },
         siteReports: { orderBy: { date: "desc" }, include: { photos: true, author: { select: { id: true, name: true } } } },
         lots: {
           orderBy: { order: "asc" },
@@ -153,6 +156,11 @@ router.get(
             subcontractor: true,
             documents: { orderBy: { createdAt: "desc" } },
             progressStatements: { orderBy: { number: "desc" } },
+            unitStepTemplates: { orderBy: { order: "asc" } },
+            units: {
+              orderBy: { name: "asc" },
+              include: { steps: true },
+            },
           },
         },
       },
