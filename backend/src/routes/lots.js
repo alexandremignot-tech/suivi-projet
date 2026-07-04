@@ -136,7 +136,19 @@ router.get(
   asyncHandler(async (req, res) => {
     const diu = await loadDiu(req);
     if (!diu) return res.status(404).json({ error: "Lot introuvable" });
-    const { bytes, merged, failures, attachments } = await buildDiuPdf(diu, UPLOAD_DIR);
+    // Lecture des fichiers : base de donnees d'abord (persistante), disque en secours
+    const fsMod = require("fs");
+    const readFile = async (fileUrl) => {
+      const name = path.basename(fileUrl);
+      const stored = await prisma.storedFile.findUnique({ where: { name } });
+      if (stored) return Buffer.from(stored.data);
+      try {
+        return fsMod.readFileSync(path.join(UPLOAD_DIR, name));
+      } catch {
+        return null;
+      }
+    };
+    const { bytes, merged, failures, attachments } = await buildDiuPdf(diu, readFile);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",

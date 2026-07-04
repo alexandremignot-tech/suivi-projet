@@ -426,8 +426,76 @@ export default function FinanceView({ project, onChange }) {
             </table>
           </div>
         );
+        // Avancement croise : % physique (EA cumules / commande) vs % facture vs % paye.
+        // Alerte quand la facturation depasse nettement l'avancement physique (ou l'inverse).
+        const crossRows = [...lots]
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map((l) => {
+            const g = byLot[l.id] || agg();
+            const engaged2 = g.po + g.am;
+            const eaTotal = (l.progressStatements || []).reduce((s, st) => s + (st.amount || 0), 0);
+            const base = l.contractAmount || engaged2;
+            const physical = base > 0 ? (eaTotal / base) * 100 : null;
+            const invoicedPct = engaged2 > 0 ? (g.inv / engaged2) * 100 : null;
+            const paidPct = engaged2 > 0 ? (g.paid / engaged2) * 100 : null;
+            return { lot: l, physical, invoicedPct, paidPct, hasData: eaTotal > 0 || g.inv > 0 || g.paid > 0 };
+          })
+          .filter((r) => r.hasData);
+        const Bar = ({ pct, color }) => (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-2 bg-slate-100 rounded">
+              <div className={`h-2 rounded ${color}`} style={{ width: `${Math.min(100, Math.max(0, pct || 0))}%` }} />
+            </div>
+            <span className="text-xs w-12 text-right">{pct === null ? "n/a" : `${Math.round(pct)} %`}</span>
+          </div>
+        );
+
         return (
           <div className="space-y-4">
+            {crossRows.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-sm font-medium">
+                  Avancement croise par lot — physique (EA) vs facture vs paye
+                </div>
+                <table className="w-full text-sm min-w-[620px]">
+                  <thead>
+                    <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+                      <th className="px-4 py-2 w-20"></th>
+                      <th className="px-4 py-2">Avancement physique (EA)</th>
+                      <th className="px-4 py-2">Facture</th>
+                      <th className="px-4 py-2">Paye</th>
+                      <th className="px-4 py-2 w-40">Ecart</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crossRows.map(({ lot: l, physical, invoicedPct, paidPct }) => {
+                      const gap = physical !== null && invoicedPct !== null ? invoicedPct - physical : null;
+                      const alert = gap !== null && Math.abs(gap) > 15;
+                      return (
+                        <tr key={l.id} className="border-b border-slate-50">
+                          <td className="px-4 py-2 font-medium">{l.code}</td>
+                          <td className="px-4 py-2"><Bar pct={physical} color="bg-brand-500" /></td>
+                          <td className="px-4 py-2"><Bar pct={invoicedPct} color="bg-amber-500" /></td>
+                          <td className="px-4 py-2"><Bar pct={paidPct} color="bg-green-500" /></td>
+                          <td className={`px-4 py-2 text-xs ${alert ? "text-red-600 font-semibold" : "text-slate-400"}`}>
+                            {gap === null
+                              ? "EA ou factures manquants"
+                              : alert
+                                ? gap > 0
+                                  ? `Facture ${Math.round(gap)} pts au-dessus du realise !`
+                                  : `Realise ${Math.round(-gap)} pts non facture`
+                                : "coherent"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="px-4 py-2 text-[11px] text-slate-400">
+                  Physique = somme des EA du lot / montant de commande du lot. Facture et paye = factures du registre / engage (commandes + avenants).
+                </p>
+              </div>
+            )}
             <Table
               title="Depenses par lot (BB)"
               rows={[

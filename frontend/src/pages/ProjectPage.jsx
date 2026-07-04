@@ -7,6 +7,7 @@ import FinanceView from "../components/FinanceView";
 import DocumentsView from "../components/DocumentsView";
 import EquipmentsView from "../components/EquipmentsView";
 import SiteReportsView from "../components/SiteReportsView";
+import IssuesView from "../components/IssuesView";
 import IntegrationsView from "../components/IntegrationsView";
 import LotsView from "../components/LotsView";
 import OverviewView from "../components/OverviewView";
@@ -20,6 +21,7 @@ const TABS = [
   { key: "documents", label: "Documents transverses" },
   { key: "equipments", label: "Equipements & Maintenance" },
   { key: "chantier", label: "Suivi de chantier" },
+  { key: "points", label: "Points ouverts" },
   { key: "integrations", label: "Integrations" },
 ];
 
@@ -112,6 +114,7 @@ export default function ProjectPage() {
       {tab === "documents" && <DocumentsView project={project} onChange={loadProject} />}
       {tab === "equipments" && <EquipmentsView project={project} onChange={loadProject} />}
       {tab === "chantier" && <SiteReportsView project={project} onChange={loadProject} />}
+      {tab === "points" && <IssuesView project={project} onChange={loadProject} />}
       {tab === "integrations" && <IntegrationsView project={project} onChange={loadProject} />}
     </div>
   );

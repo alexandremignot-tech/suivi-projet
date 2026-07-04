@@ -181,6 +181,7 @@ model Lot {
   budgetItems        BudgetItem[]
   unitStepTemplates  UnitStepTemplate[]
   units              Unit[]
+  issues             Issue[]
   equipments         Equipment[]
 }
 
@@ -266,6 +267,7 @@ model Subcontractor {
 
   documents          Document[]
   lots               Lot[]
+  issues             Issue[]
   progressStatements ProgressStatement[]
   budgetItems        BudgetItem[]
   unitStepTemplates  UnitStepTemplate[]
@@ -423,3 +425,43 @@ model ReportPhoto {
   fileName String?
   caption  String?
 }
+
+// Fichier stocke en base (persiste aux redeploiements, inclus dans les sauvegardes)
+model StoredFile {
+  id           String   @id @default(uuid())
+  name         String   @unique // nom servi dans l'URL /uploads/<name>
+  originalName String?
+  mime         String?
+  size         Int?
+  data         Bytes
+  createdAt    DateTime @default(now())
+}
+
+enum IssueStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+// Point ouvert (Comment tracker) : remarque a suivre jusqu'a cloture
+model Issue {
+  id          String      @id @default(uuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId       String?
+  lot         Lot?        @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  number      Int
+  status      IssueStatus @default(OPEN)
+  topic       String? // Build / Commissioning / Design...
+  title       String
+  description String?
+  action      String? // "Gerer avec Matexi", "Suivi WDD"...
+  assignee    String?
+  author      String?
+  response    String? // dernier suivi / reponse Karno
+  dueDate     DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @default(now()) @updatedAt
+}
+

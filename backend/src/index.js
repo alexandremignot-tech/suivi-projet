@@ -23,6 +23,9 @@ const lotRoutes = require("./routes/lots");
 const progressStatementRoutes = require("./routes/progressStatements");
 const dashboardRoutes = require("./routes/dashboard");
 const unitRoutes = require("./routes/units");
+const issueRoutes = require("./routes/issues");
+const backupRoutes = require("./routes/backup");
+const prisma = require("./db");
 
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -32,6 +35,19 @@ const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 app.use(express.json());
 app.use(morgan("dev"));
+// Fichiers : d'abord la base de donnees (persistante), puis le disque en secours
+// (anciens fichiers uploades avant la migration vers StoredFile).
+app.get("/uploads/:name", async (req, res, next) => {
+  try {
+    const file = await prisma.storedFile.findUnique({ where: { name: req.params.name } });
+    if (!file) return next();
+    if (file.mime) res.setHeader("Content-Type", file.mime);
+    res.setHeader("Content-Disposition", `inline; filename="${(file.originalName || file.name).replace(/"/g, "")}"`);
+    res.send(Buffer.from(file.data));
+  } catch (e) {
+    next(e);
+  }
+});
 app.use("/uploads", express.static(UPLOAD_DIR));
 
 app.get("/api/health", (req, res) => res.json({ status: "ok" }));
@@ -53,6 +69,8 @@ app.use("/api/integrations/odoo", odooIntegrationRoutes);
 app.use("/api/lots", lotRoutes);
 app.use("/api/progress-statements", progressStatementRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/issues", issueRoutes);
+app.use("/api/backup", backupRoutes);
 app.use("/api", unitRoutes);
 
 // Gestion d'erreurs centralisee

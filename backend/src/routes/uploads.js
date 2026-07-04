@@ -2,35 +2,39 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const { v4: uuid } = require("uuid");
+const prisma = require("../db");
+const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
 
 const router = express.Router();
 router.use(requireAuth);
 
-const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads");
+// Les fichiers sont stockes EN BASE DE DONNEES (table StoredFile) et plus sur le disque :
+// le disque de Render (plan gratuit) est efface a chaque redeploiement, la base persiste.
+// Les anciens fichiers restes sur disque sont toujours servis en secours (voir index.js).
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${uuid()}${ext}`);
-  },
-});
-
-// 25 Mo max (photos de chantier, PDF de fiches techniques, etc.)
-const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } });
-
-// Upload generique : renvoie une URL utilisable pour un Document, un Equipement, etc.
 router.post(
   "/",
   upload.single("file"),
-  (req, res) => {
+  asyncHandler(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "Aucun fichier recu" });
+    const ext = path.extname(req.file.originalname);
+    const name = `${uuid()}${ext}`;
+    await prisma.storedFile.create({
+      data: {
+        name,
+        originalName: req.file.originalname,
+        mime: req.file.mimetype,
+        size: req.file.size,
+        data: req.file.buffer,
+      },
+    });
     res.status(201).json({
-      fileUrl: `/uploads/${req.file.filename}`,
+      fileUrl: `/uploads/${name}`,
       fileName: req.file.originalname,
     });
-  }
+  })
 );
 
 module.exports = router;

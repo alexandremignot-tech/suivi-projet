@@ -82,7 +82,23 @@ class Writer {
   }
 }
 
-async function buildDiuPdf(diu, uploadDir) {
+// readFile : (fileUrl) => Buffer | null — fourni par la route (base de donnees puis disque).
+// Si on recoit un chemin (string), on garde l'ancien comportement disque pour compatibilite.
+async function buildDiuPdf(diu, readFileOrDir) {
+  const readFile =
+    typeof readFileOrDir === "function"
+      ? readFileOrDir
+      : (fileUrl) => {
+          try {
+            return fs.readFileSync(path.join(readFileOrDir, path.basename(fileUrl)));
+          } catch {
+            return null;
+          }
+        };
+  return buildDiuPdfInner(diu, readFile);
+}
+
+async function buildDiuPdfInner(diu, readFile) {
   const doc = await PDFDocument.create();
   const fonts = {
     regular: await doc.embedFont(StandardFonts.Helvetica),
@@ -191,8 +207,8 @@ async function buildDiuPdf(diu, uploadDir) {
   let currentSection = null;
   for (const { section, doc: d } of attachments) {
     try {
-      const filePath = path.join(uploadDir, path.basename(d.fileUrl));
-      const bytes = fs.readFileSync(filePath);
+      const bytes = await readFile(d.fileUrl);
+      if (!bytes) throw new Error("fichier introuvable (base et disque)");
       const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
       if (section !== currentSection) {
         currentSection = section;
