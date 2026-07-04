@@ -242,6 +242,8 @@ model ProgressStatement {
   number          Int // EA1, EA2...
   period          String // ex: "Mars 2026"
   amount          Float
+  // Detail par poste (type "Suivi EA Sparx") : [{description, qty, unit, unitPrice, total, prevPct, cumulPct}]
+  lines           Json?
   status          ProgressStatementStatus  @default(DRAFT)
   fileUrl         String?
   fileName        String?

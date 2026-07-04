@@ -1,6 +1,7 @@
 import { useState } from "react";
 import client, { fileUrl } from "../api/client";
 import UnitsGrid from "./UnitsGrid";
+import EAEditor from "./EAEditor";
 
 const DOCUMENT_CATEGORIES = [
   "RFP / RFQ",
@@ -35,6 +36,8 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
   const [statementForm, setStatementForm] = useState({ number: "", period: "", amount: "", status: "DRAFT" });
   const [statementFile, setStatementFile] = useState(null);
   const [showStatementForm, setShowStatementForm] = useState(false);
+  const [eaEditor, setEaEditor] = useState(null); // { statement? } editeur d'EA detaille par postes
+  const [expandedStatement, setExpandedStatement] = useState(null);
 
   const documents = (project.documents || []).filter((d) => d.lotId === lot.id);
   const statements = lot.progressStatements || [];
@@ -238,9 +241,14 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
           <div>
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-medium text-sm">Etats d'avancement</h3>
-              <button onClick={() => setShowStatementForm((v) => !v)} className="text-xs text-brand-600 font-medium">
-                {showStatementForm ? "Annuler" : "+ Ajouter"}
-              </button>
+              <div className="flex gap-3">
+                <button onClick={() => setEaEditor({})} className="text-xs text-brand-600 font-medium">
+                  + EA detaille (par postes)
+                </button>
+                <button onClick={() => setShowStatementForm((v) => !v)} className="text-xs text-slate-500 font-medium">
+                  {showStatementForm ? "Annuler" : "+ Montant simple"}
+                </button>
+              </div>
             </div>
 
             {showStatementForm && (
@@ -292,24 +300,67 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
 
             <div className="divide-y divide-slate-100 border border-slate-200 rounded-md">
               {statements.length === 0 && <p className="text-xs text-slate-400 p-3">Aucun etat d'avancement.</p>}
-              {statements.map((s) => (
-                <div key={s.id} className="flex items-center justify-between px-3 py-2 text-sm">
-                  <div>
-                    <span className="font-medium">EA{s.number}</span>
-                    <span className="text-xs text-slate-400 ml-2">{s.period}</span>
+              {[...statements]
+                .sort((a, b) => a.number - b.number)
+                .map((s) => (
+                <div key={s.id} className="px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-medium">EA{s.number}</span>
+                      <span className="text-xs text-slate-400 ml-2">{s.period}</span>
+                      {Array.isArray(s.lines) && s.lines.length > 0 && (
+                        <button
+                          onClick={() => setExpandedStatement(expandedStatement === s.id ? null : s.id)}
+                          className="text-[11px] text-brand-600 underline ml-2"
+                        >
+                          {expandedStatement === s.id ? "masquer" : `${s.lines.length} postes`}
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span>{s.amount.toLocaleString("fr-FR")} EUR</span>
+                      <span className="text-slate-500">{STATEMENT_STATUS_LABELS[s.status]}</span>
+                      {Array.isArray(s.lines) && s.lines.length > 0 && (
+                        <button onClick={() => setEaEditor({ statement: s })} className="text-brand-600 underline">
+                          Editer
+                        </button>
+                      )}
+                      {s.fileUrl && (
+                        <a href={fileUrl(s.fileUrl)} target="_blank" rel="noreferrer" className="text-brand-600 underline">
+                          Voir
+                        </a>
+                      )}
+                      <button onClick={() => handleDeleteStatement(s.id)} className="text-slate-400 hover:text-red-500">
+                        ✕
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span>{s.amount.toLocaleString("fr-FR")} EUR</span>
-                    <span className="text-slate-500">{STATEMENT_STATUS_LABELS[s.status]}</span>
-                    {s.fileUrl && (
-                      <a href={fileUrl(s.fileUrl)} target="_blank" rel="noreferrer" className="text-brand-600 underline">
-                        Voir
-                      </a>
-                    )}
-                    <button onClick={() => handleDeleteStatement(s.id)} className="text-slate-400 hover:text-red-500">
-                      ✕
-                    </button>
-                  </div>
+                  {expandedStatement === s.id && Array.isArray(s.lines) && (
+                    <table className="w-full text-[11px] mt-2 border border-slate-100 rounded">
+                      <thead>
+                        <tr className="text-left text-slate-400 bg-slate-50">
+                          <th className="px-2 py-1">Poste</th>
+                          <th className="px-2 py-1 text-right">Commande</th>
+                          <th className="px-2 py-1 text-right">% prec.</th>
+                          <th className="px-2 py-1 text-right">% cumule</th>
+                          <th className="px-2 py-1 text-right">Periode (EUR)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {s.lines.map((l, i) => (
+                          <tr key={i} className="border-t border-slate-50">
+                            <td className="px-2 py-1">{l.description}</td>
+                            <td className="px-2 py-1 text-right">{Number(l.total).toLocaleString("fr-FR")}</td>
+                            <td className="px-2 py-1 text-right">{l.prevPct} %</td>
+                            <td className="px-2 py-1 text-right font-medium">{l.cumulPct} %</td>
+                            <td className="px-2 py-1 text-right">
+                              {(((Number(l.cumulPct) - Number(l.prevPct)) * Number(l.total)) / 100).toLocaleString("fr-FR")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
               ))}
             </div>
@@ -363,6 +414,19 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
           </div>
         </div>
       </div>
+
+      {eaEditor && (
+        <EAEditor
+          lot={lot}
+          statements={statements}
+          statement={eaEditor.statement}
+          onClose={() => setEaEditor(null)}
+          onSaved={() => {
+            setEaEditor(null);
+            onChange();
+          }}
+        />
+      )}
     </div>
   );
 }
