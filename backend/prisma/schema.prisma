@@ -191,6 +191,7 @@ model UnitStepTemplate {
   lotId                  String
   lot                    Lot            @relation(fields: [lotId], references: [id], onDelete: Cascade)
   name                   String
+  category               String? // regroupement pour l'affichage compact (ex: "HIU", "PAC Booster", "Compteur ECS")
   order                  Int            @default(0)
   defaultSubcontractorId String?
   defaultSubcontractor   Subcontractor? @relation(fields: [defaultSubcontractorId], references: [id], onDelete: SetNull)
@@ -206,6 +207,9 @@ model Unit {
   lot       Lot      @relation(fields: [lotId], references: [id], onDelete: Cascade)
   name      String // ex: "Lot 53" ou une adresse
   notes     String?
+  // Fiche d'identification de l'unite (modeles/numeros de serie des equipements installes), ex:
+  // [{ "label": "Modele HIU", "value": "R589HPWY" }, { "label": "N. serie HIU", "value": "00014/2025" }]
+  specs     Json?
   createdAt DateTime @default(now())
 
   steps UnitStep[]

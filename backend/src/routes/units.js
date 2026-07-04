@@ -13,13 +13,23 @@ async function assertLotAccess(req, lotId) {
   return lot;
 }
 
+// Nettoie une liste de specs {label, value} envoyee par le formulaire (fiche technique d'une
+// unite ou d'un equipement) : retire les lignes totalement vides.
+function cleanSpecs(specs) {
+  if (!Array.isArray(specs)) return undefined;
+  const filtered = specs
+    .map((s) => ({ label: (s?.label || "").trim(), value: (s?.value || "").trim() }))
+    .filter((s) => s.label || s.value);
+  return filtered.length > 0 ? filtered : null;
+}
+
 // --- Etapes type (checklist repetable definie une fois par lot) ---
 
 // Cree une etape type et l'applique retroactivement a toutes les unites existantes du lot
 router.post(
   "/unit-templates",
   asyncHandler(async (req, res) => {
-    const { lotId, name, defaultSubcontractorId } = req.body;
+    const { lotId, name, category, defaultSubcontractorId } = req.body;
     if (!lotId || !name) return res.status(400).json({ error: "lotId et name sont requis" });
 
     const lot = await assertLotAccess(req, lotId);
@@ -27,7 +37,7 @@ router.post(
 
     const count = await prisma.unitStepTemplate.count({ where: { lotId } });
     const template = await prisma.unitStepTemplate.create({
-      data: { lotId, name, order: count, defaultSubcontractorId: defaultSubcontractorId || null },
+      data: { lotId, name, category: category || null, order: count, defaultSubcontractorId: defaultSubcontractorId || null },
     });
 
     const units = await prisma.unit.findMany({ where: { lotId } });
@@ -53,10 +63,15 @@ router.put(
     const lot = await assertLotAccess(req, template.lotId);
     if (!lot) return res.status(403).json({ error: "Acces refuse" });
 
-    const { name, order, defaultSubcontractorId } = req.body;
+    const { name, category, order, defaultSubcontractorId } = req.body;
     const updated = await prisma.unitStepTemplate.update({
       where: { id: req.params.id },
-      data: { name, order, defaultSubcontractorId: defaultSubcontractorId !== undefined ? defaultSubcontractorId || null : undefined },
+      data: {
+        name,
+        category: category !== undefined ? category || null : undefined,
+        order,
+        defaultSubcontractorId: defaultSubcontractorId !== undefined ? defaultSubcontractorId || null : undefined,
+      },
     });
     res.json(updated);
   })
@@ -80,13 +95,13 @@ router.delete(
 router.post(
   "/units",
   asyncHandler(async (req, res) => {
-    const { lotId, name, notes } = req.body;
+    const { lotId, name, notes, specs } = req.body;
     if (!lotId || !name) return res.status(400).json({ error: "lotId et name sont requis" });
 
     const lot = await assertLotAccess(req, lotId);
     if (!lot) return res.status(404).json({ error: "Lot introuvable" });
 
-    const unit = await createUnitWithSteps(lotId, name, notes);
+    const unit = await createUnitWithSteps(lotId, name, notes, specs);
     res.status(201).json(unit);
   })
 );
@@ -118,8 +133,8 @@ router.post(
   })
 );
 
-async function createUnitWithSteps(lotId, name, notes) {
-  const unit = await prisma.unit.create({ data: { lotId, name, notes } });
+async function createUnitWithSteps(lotId, name, notes, specs) {
+  const unit = await prisma.unit.create({ data: { lotId, name, notes, specs: cleanSpecs(specs) ?? undefined } });
   const templates = await prisma.unitStepTemplate.findMany({ where: { lotId } });
   if (templates.length > 0) {
     await prisma.unitStep.createMany({
@@ -137,8 +152,11 @@ router.put(
     const lot = await assertLotAccess(req, unit.lotId);
     if (!lot) return res.status(403).json({ error: "Acces refuse" });
 
-    const { name, notes } = req.body;
-    const updated = await prisma.unit.update({ where: { id: req.params.id }, data: { name, notes } });
+    const { name, notes, specs } = req.body;
+    const updated = await prisma.unit.update({
+      where: { id: req.params.id },
+      data: { name, notes, specs: specs !== undefined ? cleanSpecs(specs) : undefined },
+    });
     res.json(updated);
   })
 );
