@@ -123,6 +123,53 @@ export default function PlanningView({ project, onChange }) {
     return !isDone(task) && task.dueDate && new Date(task.dueDate) < today;
   }
 
+  // ----- Dependances entre taches -----
+  const taskById = Object.fromEntries(allTasks.map((t) => [t.id, t]));
+
+  // Toutes les taches qui dependent (directement ou en cascade) d'une tache donnee
+  function dependentsOf(taskId) {
+    const result = [];
+    const seen = new Set([taskId]);
+    const queue = [taskId];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const t of allTasks) {
+        if ((t.dependsOnIds || []).includes(cur) && !seen.has(t.id)) {
+          seen.add(t.id);
+          result.push(t);
+          queue.push(t.id);
+        }
+      }
+    }
+    return result;
+  }
+
+  // Conflit : la tache demarre avant la fin d'une de ses dependances (non terminee)
+  function conflictsOf(t) {
+    const ref = t.startDate || t.dueDate;
+    if (!ref) return [];
+    return (t.dependsOnIds || [])
+      .map((id) => taskById[id])
+      .filter((dep) => dep && !isDone(dep) && dep.dueDate && new Date(ref) < new Date(dep.dueDate));
+  }
+  const allConflicts = allTasks.map((t) => ({ t, deps: conflictsOf(t) })).filter((x) => x.deps.length > 0);
+
+  // Apres un deplacement de "task" de deltaDays : propose de decaler aussi ses dependantes
+  async function cascadeShift(task, deltaDays) {
+    if (!deltaDays) return;
+    const deps = dependentsOf(task.id).filter((t) => t.startDate || t.dueDate);
+    if (!deps.length) return;
+    const list = deps.map((d) => `- ${d.title}`).slice(0, 8).join("\n");
+    if (
+      !confirm(
+        `${deps.length} tache(s) dependent de "${task.title}".\nLes decaler aussi de ${deltaDays > 0 ? "+" : ""}${deltaDays} jour(s) ?\n${list}${deps.length > 8 ? "\n..." : ""}`
+      )
+    )
+      return;
+    // Un seul appel : le serveur decale toute la chaine dans une transaction atomique
+    await client.patch(`/tasks/${task.id}/shift-dependents`, { days: deltaDays });
+  }
+
   // ----- Drag des barres (deplacer = toute la barre, redimensionner = poignee droite) -----
   function startDrag(e, task, mode) {
     e.preventDefault();
@@ -165,6 +212,7 @@ export default function PlanningView({ project, onChange }) {
         patch.dueDate = toInputDate(newDue);
       }
       await client.put(`/tasks/${t.id}`, patch);
+      await cascadeShift(t, days); // propose de decaler aussi les taches dependantes
       onChange();
     }
     window.addEventListener("pointermove", onMove);
@@ -191,10 +239,20 @@ export default function PlanningView({ project, onChange }) {
 
   async function saveEditingTask(e) {
     e.preventDefault();
+    const orig = taskById[editingTask.id];
     await client.put(`/tasks/${editingTask.id}`, {
       startDate: editingTask.startDate || null,
       dueDate: editingTask.dueDate || null,
     });
+    // cascade : delta calcule sur la date de reference (debut, sinon echeance)
+    if (orig) {
+      const oldRef = orig.startDate || orig.dueDate;
+      const newRef = editingTask.startDate || editingTask.dueDate;
+      if (oldRef && newRef) {
+        const delta = Math.round((new Date(newRef) - new Date(toInputDate(oldRef))) / DAY_MS);
+        await cascadeShift(orig, delta);
+      }
+    }
     setEditingTask(null);
     onChange();
   }
@@ -316,6 +374,22 @@ export default function PlanningView({ project, onChange }) {
         </form>
       )}
 
+      {/* Conflits de dependances : une tache demarre avant la fin d'une tache dont elle depend */}
+      {allConflicts.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+          <p className="text-sm font-medium text-red-700 mb-1">
+            ⛓ {allConflicts.length} conflit(s) de dependances a resoudre :
+          </p>
+          {allConflicts.slice(0, 6).map(({ t, deps }) => (
+            <p key={t.id} className="text-xs text-red-600">
+              « {t.title} » ({shortDate(t.startDate || t.dueDate)}) demarre avant la fin de{" "}
+              {deps.map((d) => `« ${d.title} » (${shortDate(d.dueDate)})`).join(", ")}
+            </p>
+          ))}
+          {allConflicts.length > 6 && <p className="text-xs text-red-400">... et {allConflicts.length - 6} autre(s)</p>}
+        </div>
+      )}
+
       {/* Editeur de dates (ouvert au clic sur une barre ou une tache sans dates) */}
       {editingTask && (
         <form onSubmit={saveEditingTask} className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex flex-wrap gap-3 items-end">
@@ -386,6 +460,7 @@ export default function PlanningView({ project, onChange }) {
           if ((t.lotId || null) !== row.lotId) patch.lotId = row.lotId;
           if (Object.keys(patch).length === 0) return;
           await client.put(`/tasks/${t.id}`, patch);
+          await cascadeShift(t, deltaDays); // propose de decaler aussi les taches dependantes
           onChange();
         }
 
@@ -461,9 +536,10 @@ export default function PlanningView({ project, onChange }) {
                                 onClick={() =>
                                   setEditingTask({ id: t.id, title: t.title, startDate: toInputDate(t.startDate), dueDate: toInputDate(t.dueDate) })
                                 }
-                                className={`text-[11px] leading-tight border rounded px-1.5 py-1 cursor-grab active:cursor-grabbing ${color}`}
-                                title={`${t.title}\n${shortDate(t.startDate)} → ${shortDate(t.dueDate)} — glisse vers une autre semaine, clic pour éditer`}
+                                className={`text-[11px] leading-tight border rounded px-1.5 py-1 cursor-grab active:cursor-grabbing ${color} ${conflictsOf(t).length ? "ring-1 ring-red-500" : ""}`}
+                                title={`${t.title}\n${shortDate(t.startDate)} → ${shortDate(t.dueDate)}${conflictsOf(t).length ? "\nCONFLIT : demarre avant la fin d'une dependance" : ""} — glisse vers une autre semaine, clic pour éditer`}
                               >
+                                {conflictsOf(t).length > 0 ? "⛓ " : ""}
                                 {t.title}
                               </div>
                             );
@@ -540,6 +616,7 @@ export default function PlanningView({ project, onChange }) {
                   const width = Math.max(1.5, end - start);
                   const color = isDone(t) ? "bg-green-500" : isLate(t) ? "bg-red-500" : "bg-brand-500";
                   const dragging = drag && drag.taskId === t.id;
+                  const conflict = conflictsOf(t).length > 0;
                   return (
                     <div key={t.id} className="flex items-center gap-3 py-1 group/row">
                       <div
@@ -555,10 +632,10 @@ export default function PlanningView({ project, onChange }) {
                         ))}
                         <div className="absolute top-0 h-full border-l-2 border-red-300" style={{ left: `${todayPos}%` }} />
                         <div
-                          className={`absolute top-0.5 h-5 rounded ${color} ${dragging ? "opacity-80 ring-2 ring-brand-300" : ""} cursor-grab active:cursor-grabbing`}
+                          className={`absolute top-0.5 h-5 rounded ${color} ${dragging ? "opacity-80 ring-2 ring-brand-300" : conflict ? "ring-2 ring-red-500" : ""} cursor-grab active:cursor-grabbing`}
                           style={{ left: `${start}%`, width: `${width}%` }}
                           onPointerDown={(e) => startDrag(e, t, "move")}
-                          title={`${shortDate(d.startDate)} → ${shortDate(d.dueDate)} — glisse pour deplacer, clic pour editer`}
+                          title={`${shortDate(d.startDate)} → ${shortDate(d.dueDate)}${conflict ? " — CONFLIT : demarre avant la fin d'une dependance" : ""} — glisse pour deplacer, clic pour editer`}
                         >
                           <div
                             className="absolute right-0 top-0 h-full w-2 cursor-ew-resize rounded-r bg-black/20 opacity-0 group-hover/row:opacity-100"

@@ -465,3 +465,19 @@ model Issue {
   updatedAt   DateTime    @default(now()) @updatedAt
 }
 
+// Journal des modifications (audit) : qui a fait quoi, quand. Sans FK pour survivre aux suppressions.
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String?
+  userName       String?
+  method         String
+  path           String
+  entity         String?
+  entityId       String?
+  projectId      String?
+  summary        String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}

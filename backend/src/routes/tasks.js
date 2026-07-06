@@ -121,6 +121,47 @@ router.put(
   })
 );
 
+// Decale toutes les taches qui dependent de celle-ci (directement ou en cascade)
+// de N jours, en UNE transaction atomique. Utilise apres un deplacement dans le planning.
+router.patch(
+  "/:id/shift-dependents",
+  asyncHandler(async (req, res) => {
+    const existing = await loadTaskWithAccess(req, res);
+    if (!existing) return;
+    const days = Number(req.body.days);
+    if (!days) return res.status(400).json({ error: "days (entier non nul) est requis" });
+
+    const all = await prisma.task.findMany({ where: { projectId: existing.projectId } });
+    const seen = new Set([existing.id]);
+    const queue = [existing.id];
+    const targets = [];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const t of all) {
+        if ((t.dependsOnIds || []).includes(cur) && !seen.has(t.id)) {
+          seen.add(t.id);
+          queue.push(t.id);
+          if (t.startDate || t.dueDate) targets.push(t);
+        }
+      }
+    }
+
+    const shift = (d) => (d ? new Date(new Date(d).getTime() + days * 24 * 60 * 60 * 1000) : null);
+    await prisma.$transaction(
+      targets.map((t) =>
+        prisma.task.update({
+          where: { id: t.id },
+          data: {
+            startDate: t.startDate ? shift(t.startDate) : undefined,
+            dueDate: t.dueDate ? shift(t.dueDate) : undefined,
+          },
+        })
+      )
+    );
+    res.json({ shifted: targets.length, tasks: targets.map((t) => ({ id: t.id, title: t.title })) });
+  })
+);
+
 // Deplacement rapide dans le Kanban (drag & drop): change de colonne + reordonne
 router.patch(
   "/:id/move",

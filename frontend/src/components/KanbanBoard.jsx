@@ -63,6 +63,17 @@ export default function KanbanBoard({ project, members, onChange }) {
 
   const memberById = Object.fromEntries(members.map((m) => [m.id, m]));
   const lotById = Object.fromEntries((project.lots || []).map((l) => [l.id, l]));
+  const taskById = Object.fromEntries(project.tasks.map((t) => [t.id, t]));
+  const columnById = Object.fromEntries(project.columns.map((c) => [c.id, c]));
+  const isTaskDone = (t) => {
+    const col = columnById[t.columnId];
+    return col ? DONE_COLUMN_RE.test(col.name) : false;
+  };
+  // Dependances non terminees d'une tache -> la tache est "bloquee"
+  const blockingDeps = (t) =>
+    (t.dependsOnIds || [])
+      .map((id) => taskById[id])
+      .filter((dep) => dep && !isTaskDone(dep));
 
   return (
     <div>
@@ -122,6 +133,27 @@ export default function KanbanBoard({ project, members, onChange }) {
                                 {lotById[task.lotId].code}
                               </span>
                             )}
+                            {(task.dependsOnIds || []).length > 0 && (() => {
+                              const blocking = blockingDeps(task);
+                              const blocked = blocking.length > 0 && !DONE_COLUMN_RE.test(col.name);
+                              return (
+                                <p
+                                  className={`text-[10px] mt-1 ${blocked ? "text-red-600 font-medium" : "text-slate-400"}`}
+                                  title={
+                                    blocked
+                                      ? `En attente de : ${blocking.map((d) => d.title).join(", ")}`
+                                      : "Toutes les dependances sont terminees"
+                                  }
+                                >
+                                  {blocked
+                                    ? `⛓ bloquee par : ${blocking
+                                        .map((d) => d.title)
+                                        .join(", ")
+                                        .slice(0, 60)}${blocking.map((d) => d.title).join(", ").length > 60 ? "..." : ""}`
+                                    : `⛓ ${task.dependsOnIds.length} dependance(s) OK`}
+                                </p>
+                              );
+                            })()}
                           </div>
                         )}
                       </Draggable>

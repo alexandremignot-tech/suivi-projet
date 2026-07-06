@@ -30,22 +30,35 @@ const TABLES = [
 ];
 
 // Export complet de la base en JSON. ?files=1 pour inclure aussi les fichiers (plus lourd).
+// La reponse est STREAMEE table par table et fichier par fichier : la memoire du serveur
+// (512 Mo sur le plan gratuit Render) ne contient jamais plus d'un fichier a la fois.
 router.get(
   "/",
   asyncHandler(async (req, res) => {
     const includeFiles = req.query.files === "1";
-    const dump = { version: 2, exportedAt: new Date().toISOString(), tables: {} };
-    for (const t of TABLES) {
-      dump.tables[t] = await prisma[t].findMany();
-    }
-    if (includeFiles) {
-      const files = await prisma.storedFile.findMany();
-      dump.tables.storedFile = files.map((f) => ({ ...f, data: Buffer.from(f.data).toString("base64") }));
-    }
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Content-Disposition", `attachment; filename="sauvegarde-suivi-projet-${stamp}${includeFiles ? "-avec-fichiers" : ""}.json"`);
-    res.send(JSON.stringify(dump));
+
+    res.write(`{"version":2,"exportedAt":${JSON.stringify(new Date().toISOString())},"tables":{`);
+    let first = true;
+    for (const t of TABLES) {
+      const rows = await prisma[t].findMany();
+      res.write(`${first ? "" : ","}${JSON.stringify(t)}:${JSON.stringify(rows)}`);
+      first = false;
+    }
+    if (includeFiles) {
+      res.write(',"storedFile":[');
+      const metas = await prisma.storedFile.findMany({ select: { id: true }, orderBy: { createdAt: "asc" } });
+      for (let i = 0; i < metas.length; i++) {
+        const f = await prisma.storedFile.findUnique({ where: { id: metas[i].id } });
+        const row = { ...f, data: Buffer.from(f.data).toString("base64") };
+        res.write((i ? "," : "") + JSON.stringify(row));
+      }
+      res.write("]");
+    }
+    res.write("}}");
+    res.end();
   })
 );
 

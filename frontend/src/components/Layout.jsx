@@ -61,6 +61,9 @@ export default function Layout({ children }) {
           <Link to="/subcontractors" className="text-sm text-slate-600 hover:text-brand-600">
             Sous-traitants
           </Link>
+          <Link to="/history" className="text-sm text-slate-600 hover:text-brand-600">
+            Historique
+          </Link>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <button
@@ -80,7 +83,16 @@ export default function Layout({ children }) {
             restaurer
           </button>
           <input ref={restoreInput} type="file" accept=".json" onChange={handleRestore} className="hidden" />
-          <span className="text-slate-500">{organization?.name}</span>
+          <button
+            onClick={() => {
+              navigator.clipboard?.writeText(organization?.id || "");
+              alert("Code d'organisation copie ! Transmets-le a un collegue : il le colle dans le champ \"ID de l'organisation\" a l'inscription pour rejoindre " + (organization?.name || ""));
+            }}
+            title="Copier le code d'organisation (pour inviter un collegue)"
+            className="text-slate-500 hover:text-brand-600"
+          >
+            {organization?.name}
+          </button>
           <span className="font-medium">{user?.name}</span>
           <button
             onClick={handleLogout}

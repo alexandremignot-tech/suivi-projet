@@ -25,6 +25,8 @@ const dashboardRoutes = require("./routes/dashboard");
 const unitRoutes = require("./routes/units");
 const issueRoutes = require("./routes/issues");
 const backupRoutes = require("./routes/backup");
+const auditRoutes = require("./routes/audit");
+const auditLogger = require("./utils/auditLogger");
 const prisma = require("./db");
 
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
@@ -35,6 +37,7 @@ const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 app.use(express.json());
 app.use(morgan("dev"));
+app.use(auditLogger); // journal des modifications (non bloquant)
 // Fichiers : d'abord la base de donnees (persistante), puis le disque en secours
 // (anciens fichiers uploades avant la migration vers StoredFile).
 app.get("/uploads/:name", async (req, res, next) => {
@@ -71,6 +74,7 @@ app.use("/api/progress-statements", progressStatementRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/issues", issueRoutes);
 app.use("/api/backup", backupRoutes);
+app.use("/api/audit", auditRoutes);
 app.use("/api", unitRoutes);
 
 // Gestion d'erreurs centralisee

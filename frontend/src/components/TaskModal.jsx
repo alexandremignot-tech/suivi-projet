@@ -23,8 +23,36 @@ export default function TaskModal({ project, members, columnId, task, onClose, o
     assigneeId: task?.assigneeId || "",
     lotId: task?.lotId || "",
     columnId: task?.columnId || columnId || project.columns[0].id,
+    dependsOnIds: task?.dependsOnIds || [],
   });
   const [saving, setSaving] = useState(false);
+  const [depSearch, setDepSearch] = useState("");
+
+  // Taches selectionnables comme dependances : pas soi-meme, pas les taches qui dependent
+  // (directement ou non) de celle-ci — evite les cycles.
+  const allTasks = project.tasks || [];
+  const descendants = new Set();
+  if (isEdit) {
+    const queue = [task.id];
+    while (queue.length) {
+      const cur = queue.pop();
+      for (const t of allTasks) {
+        if ((t.dependsOnIds || []).includes(cur) && !descendants.has(t.id)) {
+          descendants.add(t.id);
+          queue.push(t.id);
+        }
+      }
+    }
+  }
+  const selectableDeps = allTasks.filter((t) => (!isEdit || t.id !== task.id) && !descendants.has(t.id));
+  const taskById = Object.fromEntries(allTasks.map((t) => [t.id, t]));
+
+  function toggleDep(id) {
+    setForm((f) => ({
+      ...f,
+      dependsOnIds: f.dependsOnIds.includes(id) ? f.dependsOnIds.filter((x) => x !== id) : [...f.dependsOnIds, id],
+    }));
+  }
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -194,6 +222,47 @@ export default function TaskModal({ project, members, columnId, task, onClose, o
                 onChange={(e) => update("actualCost", e.target.value)}
                 className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
               />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Depend de {form.dependsOnIds.length > 0 ? `(${form.dependsOnIds.length})` : ""}
+            </label>
+            <p className="text-xs text-slate-400 mb-1">
+              Cette tache ne peut commencer qu'apres les taches cochees. Le planning signale les
+              conflits de dates et decale les dependantes quand tu deplaces une tache.
+            </p>
+            {form.dependsOnIds.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-2">
+                {form.dependsOnIds.map((id) => (
+                  <span key={id} className="text-[11px] bg-brand-50 border border-brand-200 text-brand-700 rounded-full px-2 py-0.5 flex items-center gap-1">
+                    {taskById[id]?.title || "?"}
+                    <button type="button" onClick={() => toggleDep(id)} className="hover:text-red-600">
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <input
+              placeholder="Filtrer les taches..."
+              value={depSearch}
+              onChange={(e) => setDepSearch(e.target.value)}
+              className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-xs mb-1"
+            />
+            <div className="border border-slate-200 rounded-md max-h-36 overflow-y-auto divide-y divide-slate-50">
+              {selectableDeps
+                .filter((t) => !depSearch || t.title.toLowerCase().includes(depSearch.toLowerCase()))
+                .slice(0, 60)
+                .map((t) => (
+                  <label key={t.id} className="flex items-center gap-2 px-3 py-1 text-xs cursor-pointer hover:bg-slate-50">
+                    <input type="checkbox" checked={form.dependsOnIds.includes(t.id)} onChange={() => toggleDep(t.id)} />
+                    <span className="truncate">{t.title}</span>
+                    {t.dueDate && <span className="text-slate-400 flex-shrink-0">→ {new Date(t.dueDate).toLocaleDateString("fr-FR")}</span>}
+                  </label>
+                ))}
+              {selectableDeps.length === 0 && <p className="text-xs text-slate-400 px-3 py-2">Aucune tache disponible.</p>}
             </div>
           </div>
 

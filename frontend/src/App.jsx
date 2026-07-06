@@ -7,6 +7,7 @@ import ProjectPage from "./pages/ProjectPage";
 import Subcontractors from "./pages/Subcontractors";
 import AsBuiltExport from "./pages/AsBuiltExport";
 import DiuExport from "./pages/DiuExport";
+import History from "./pages/History";
 import Alerts from "./pages/Alerts";
 import Layout from "./components/Layout";
 
@@ -55,6 +56,16 @@ export default function App() {
         element={
           <PrivateRoute>
             <DiuExport />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/history"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <History />
+            </Layout>
           </PrivateRoute>
         }
       />
