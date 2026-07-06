@@ -156,6 +156,7 @@ model Project {
   equipments  Equipment[]
   siteReports SiteReport[]
   lots        Lot[]
+  issues             Issue[]
 }
 
 // Un lot (ex: "BB1 - Forage geothermique") : decoupage reel d'un projet en sous-contrats,
@@ -267,7 +268,6 @@ model Subcontractor {
 
   documents          Document[]
   lots               Lot[]
-  issues             Issue[]
   progressStatements ProgressStatement[]
   budgetItems        BudgetItem[]
   unitStepTemplates  UnitStepTemplate[]
