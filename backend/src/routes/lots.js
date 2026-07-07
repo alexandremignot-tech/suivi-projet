@@ -5,6 +5,8 @@ const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
 const { buildDiuData } = require("../utils/diu");
 const { buildDiuPdf } = require("../utils/diuPdf");
+const { buildContractDocx } = require("../utils/contractDocx");
+const { v4: uuid } = require("uuid");
 
 const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads");
 
@@ -116,6 +118,53 @@ router.delete(
 
     await prisma.lot.delete({ where: { id: req.params.id } });
     res.status(204).end();
+  })
+);
+
+// Genere un contrat de sous-entreprise (conditions particulieres KARNO) pour ce lot.
+// body = configuration du generateur ; body.save = true pour l'enregistrer aussi comme
+// Document "Contrat" du lot (fichier stocke en base, visible dans l'app et le DIU).
+router.post(
+  "/:id/contract.docx",
+  asyncHandler(async (req, res) => {
+    const lot = await loadWithAccess(req, res);
+    if (!lot) return;
+    const bytes = await buildContractDocx(req.body);
+
+    let documentId = null;
+    if (req.body.save) {
+      const name = `${uuid()}.docx`;
+      const fileName = `K-Contrat-${lot.code}-${(req.body.stNom || "ST").replace(/[^a-zA-Z0-9]/g, "")}.docx`;
+      await prisma.storedFile.create({
+        data: {
+          name,
+          originalName: fileName,
+          mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          size: bytes.length,
+          data: Buffer.from(bytes),
+        },
+      });
+      const docRecord = await prisma.document.create({
+        data: {
+          projectId: lot.projectId,
+          lotId: lot.id,
+          name: `Contrat - ${req.body.stNom || ""} (genere)`,
+          category: "Contrat",
+          subcontractorId: lot.subcontractorId || null,
+          fileUrl: `/uploads/${name}`,
+          fileName,
+          status: "RECEIVED",
+          receivedAt: new Date(),
+          notes: "Genere par le generateur de contrats (template contrat ponctuel de sous-entreprise Karno V4)",
+        },
+      });
+      documentId = docRecord.id;
+    }
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="Contrat-${lot.code}.docx"`);
+    if (documentId) res.setHeader("X-Document-Id", documentId);
+    res.send(Buffer.from(bytes));
   })
 );
 

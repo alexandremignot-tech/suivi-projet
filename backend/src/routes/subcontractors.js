@@ -21,11 +21,11 @@ router.get(
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { name, specialty, contactName, email, phone } = req.body;
+    const { name, specialty, contactName, email, phone, vatNumber, address, representative } = req.body;
     if (!name) return res.status(400).json({ error: "Le nom du sous-traitant est requis" });
 
     const subcontractor = await prisma.subcontractor.create({
-      data: { name, specialty, contactName, email, phone, organizationId: req.user.organizationId },
+      data: { name, specialty, contactName, email, phone, vatNumber, address, representative, organizationId: req.user.organizationId },
     });
     res.status(201).json(subcontractor);
   })
@@ -48,10 +48,10 @@ router.put(
     const existing = await loadOrFail(req, res);
     if (!existing) return;
 
-    const { name, specialty, contactName, email, phone } = req.body;
+    const { name, specialty, contactName, email, phone, vatNumber, address, representative } = req.body;
     const updated = await prisma.subcontractor.update({
       where: { id: req.params.id },
-      data: { name, specialty, contactName, email, phone },
+      data: { name, specialty, contactName, email, phone, vatNumber, address, representative },
     });
     res.json(updated);
   })

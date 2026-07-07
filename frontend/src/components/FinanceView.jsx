@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import client, { fileUrl } from "../api/client";
+import LotFinanceCards from "./LotFinanceCards";
 
 const ENTRY_TYPE_LABELS = {
   PURCHASE_ORDER: "Commande",
@@ -53,7 +54,7 @@ export default function FinanceView({ project, onChange }) {
     client.get("/subcontractors").then(({ data }) => setSubcontractors(data));
   }, []);
 
-  const [tab, setTab] = useState("registre"); // "registre" | "dossier" | "synthese"
+  const [tab, setTab] = useState("lots"); // "lots" | "registre" | "dossier" | "synthese"
   const [importRows, setImportRows] = useState([]); // lignes en attente issues du glisser-deposer
   const [importing, setImporting] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -341,8 +342,14 @@ export default function FinanceView({ project, onChange }) {
         </div>
       )}
 
-      {/* Onglets Registre / Dossier documents */}
+      {/* Onglets Par lot / Registre / Dossier documents / Synthese */}
       <div className="flex gap-1 border-b border-slate-200">
+        <button
+          onClick={() => setTab("lots")}
+          className={`px-4 py-2 text-sm rounded-t-md ${tab === "lots" ? "bg-white border border-b-0 border-slate-200 font-medium" : "text-slate-500 hover:text-slate-700"}`}
+        >
+          Par lot
+        </button>
         <button
           onClick={() => setTab("registre")}
           className={`px-4 py-2 text-sm rounded-t-md ${tab === "registre" ? "bg-white border border-b-0 border-slate-200 font-medium" : "text-slate-500 hover:text-slate-700"}`}
@@ -362,6 +369,8 @@ export default function FinanceView({ project, onChange }) {
           Synthese
         </button>
       </div>
+
+      {tab === "lots" && <LotFinanceCards project={project} subcontractors={subcontractors} />}
 
       {tab === "synthese" && (() => {
         const agg = () => ({ po: 0, am: 0, risk: 0, inv: 0, paid: 0 });
