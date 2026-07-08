@@ -236,4 +236,4 @@ async function buildDiuPdfInner(diu, readFile) {
   return { bytes: await doc.save(), merged, failures: failures.length, attachments: attachments.length };
 }
 
-module.exports = { buildDiuPdf };
+module.exports = { buildDiuPdf, Writer, safe, wrap, A4, MARGIN, DARK, GRAY, RED, GREEN };

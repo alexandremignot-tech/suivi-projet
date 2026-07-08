@@ -152,4 +152,39 @@ router.delete(
   })
 );
 
+
+// ----- Maintenance -----
+// Marque un entretien realise : cree l'historique + met a jour la date de dernier entretien.
+router.post(
+  "/:id/maintenance",
+  asyncHandler(async (req, res) => {
+    const equipment = await prisma.equipment.findUnique({ where: { id: req.params.id }, include: { project: true } });
+    if (!equipment || equipment.project.organizationId !== req.user.organizationId) {
+      return res.status(404).json({ error: "Equipement introuvable" });
+    }
+    const { date, notes } = req.body;
+    const when = date ? new Date(date) : new Date();
+    const record = await prisma.maintenanceRecord.create({
+      data: { equipmentId: equipment.id, date: when, notes: notes || null, userName: req.user.name || req.user.email || null },
+    });
+    await prisma.equipment.update({ where: { id: equipment.id }, data: { lastMaintenanceDate: when } });
+    res.status(201).json(record);
+  })
+);
+
+router.delete(
+  "/maintenance/:recordId",
+  asyncHandler(async (req, res) => {
+    const record = await prisma.maintenanceRecord.findUnique({
+      where: { id: req.params.recordId },
+      include: { equipment: { include: { project: true } } },
+    });
+    if (!record || record.equipment.project.organizationId !== req.user.organizationId) {
+      return res.status(404).json({ error: "Entretien introuvable" });
+    }
+    await prisma.maintenanceRecord.delete({ where: { id: record.id } });
+    res.status(204).end();
+  })
+);
+
 module.exports = router;

@@ -1,125 +1,192 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import client, { fileUrl } from "../api/client";
+import { useParams, Link } from "react-router-dom";
+import client from "../api/client";
 
-const DOC_STATUS_LABELS = {
-  MISSING: "MANQUANT",
-  RECEIVED: "Recu",
-  VALIDATED: "Valide",
-  REJECTED: "Rejete",
-};
+// Tableau de controle du dossier as-built : completude par lot, pieces manquantes,
+// depot de fichiers en masse (rattachement par nom), et telechargement du dossier
+// COMPLET du projet en un seul PDF (transverses + chapitres par BB + inventaires
+// + plan de maintenance + fiches logements + documents fusionnes).
 
-function isOverdue(doc) {
-  return doc.status === "MISSING" && doc.deadline && new Date(doc.deadline) < new Date();
-}
+const normalize = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\.[a-z0-9]+$/, "")
+    .replace(/[^a-z0-9]/g, "");
 
-// Vue imprimable du dossier As-built : liste tous les documents du projet (transverses + par lot)
-// avec leur statut, pour remise au client final (l'operateur). Utiliser Cmd+P / le bouton pour exporter en PDF.
 export default function AsBuiltExport() {
   const { id } = useParams();
   const [project, setProject] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [downloading, setDownloading] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadReport, setUploadReport] = useState(null);
+  const [expanded, setExpanded] = useState(null);
 
+  async function load() {
+    const [p, st] = await Promise.all([client.get(`/projects/${id}`), client.get(`/projects/${id}/asbuilt-status`)]);
+    setProject(p.data);
+    setStatus(st.data);
+  }
   useEffect(() => {
-    client.get(`/projects/${id}`).then(({ data }) => setProject(data));
+    load();
   }, [id]);
 
-  if (!project) return <div className="p-8 text-center text-slate-500">Chargement...</div>;
+  async function downloadFull() {
+    setDownloading(true);
+    try {
+      const res = await client.get(`/projects/${id}/asbuilt.pdf`, { responseType: "blob", timeout: 300000 });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `AsBuilt-${project?.name || "projet"}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
+  }
 
-  const transverseDocs = (project.documents || []).filter((d) => !d.lotId);
-  const allDocs = [...transverseDocs, ...project.lots.flatMap((l) => l.documents || [])];
-  const missingCount = allDocs.filter((d) => d.status === "MISSING").length;
-  const overdueCount = allDocs.filter(isOverdue).length;
+  // Depot en masse : rattache chaque fichier au document du projet portant le meme nom
+  async function handleDrop(e) {
+    e.preventDefault();
+    const files = [...(e.dataTransfer?.files || [])];
+    if (!files.length || !project) return;
+    setUploadBusy(true);
+    const report = { attached: 0, skipped: [] };
+    try {
+      const docs = project.documents || [];
+      for (const file of files) {
+        const key = normalize(file.name);
+        const doc = docs.find((d) => {
+          const dn = normalize(d.name);
+          return dn && (key.includes(dn) || dn.includes(key));
+        });
+        if (!doc) {
+          report.skipped.push(file.name);
+          continue;
+        }
+        const formData = new FormData();
+        formData.append("file", file);
+        const { data: up } = await client.post("/uploads", formData, { headers: { "Content-Type": "multipart/form-data" } });
+        await client.put(`/documents/${doc.id}`, { fileUrl: up.fileUrl, fileName: up.fileName, status: "RECEIVED" });
+        report.attached += 1;
+      }
+      setUploadReport(report);
+      await load();
+    } finally {
+      setUploadBusy(false);
+    }
+  }
+
+  if (!project || !status) return <div className="p-8 text-center text-slate-500">Chargement...</div>;
+
+  const totalMissing = status.lots.reduce((s, l) => s + l.missing.length, 0);
+  const globalPct = (() => {
+    const withPct = status.lots.filter((l) => l.completeness !== null);
+    if (!withPct.length) return null;
+    return Math.round(withPct.reduce((s, l) => s + l.completeness, 0) / withPct.length);
+  })();
 
   return (
-    <div className="max-w-4xl mx-auto px-8 py-10 print:px-0 print:py-0">
-      <div className="flex items-center justify-between mb-8 print:hidden">
-        <p className="text-sm text-slate-500">Apercu du dossier As-built - utilisez l'impression du navigateur (Cmd/Ctrl+P) pour exporter en PDF.</p>
-        <button onClick={() => window.print()} className="bg-brand-600 text-white text-sm px-4 py-2 rounded-md">
-          Imprimer / Exporter en PDF
+    <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Dossier As-Built — {project.name}</h1>
+          <p className="text-sm text-slate-500">
+            Tableau de controle du dossier a remettre au client.{" "}
+            <Link to={`/projects/${id}`} className="text-brand-600 underline">Retour au projet</Link>
+            {" · "}
+            <Link to={`/projects/${id}/diu`} className="text-brand-600 underline">DIU par lot</Link>
+          </p>
+        </div>
+        <button
+          onClick={downloadFull}
+          disabled={downloading}
+          className="bg-brand-600 text-white text-sm px-4 py-2 rounded-md disabled:opacity-50"
+        >
+          {downloading ? "Assemblage du dossier..." : "Telecharger le dossier complet (PDF)"}
         </button>
       </div>
 
-      <div className="border-b border-slate-300 pb-4 mb-6">
-        <h1 className="text-2xl font-bold">Dossier As-built</h1>
-        <h2 className="text-lg text-slate-700">{project.name}</h2>
-        <p className="text-sm text-slate-500 mt-1">{project.description}</p>
-        <p className="text-xs text-slate-400 mt-2">Genere le {new Date().toLocaleDateString("fr-FR")}</p>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Metric label="Completude moyenne" value={globalPct === null ? "n/a" : `${globalPct} %`} danger={globalPct !== null && globalPct < 100} />
+        <Metric label="Pieces manquantes" value={totalMissing} danger={totalMissing > 0} />
+        <Metric label="Documents generaux" value={`${status.transverse.withFile}/${status.transverse.total}`} />
+        <Metric label="Lots" value={status.lots.length} />
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-8 text-sm">
-        <div className="border border-slate-200 rounded-md p-3">
-          <div className="text-xs text-slate-400">Documents au total</div>
-          <div className="text-xl font-semibold">{allDocs.length}</div>
-        </div>
-        <div className="border border-slate-200 rounded-md p-3">
-          <div className="text-xs text-slate-400">Manquants</div>
-          <div className={`text-xl font-semibold ${missingCount > 0 ? "text-red-600" : ""}`}>{missingCount}</div>
-        </div>
-        <div className="border border-slate-200 rounded-md p-3">
-          <div className="text-xs text-slate-400">En retard</div>
-          <div className={`text-xl font-semibold ${overdueCount > 0 ? "text-red-600" : ""}`}>{overdueCount}</div>
-        </div>
+      <div
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+        className="border-2 border-dashed border-slate-300 rounded-lg px-4 py-5 text-center text-sm text-slate-500 hover:border-brand-400"
+      >
+        {uploadBusy
+          ? "Envoi en cours..."
+          : "Glisse ici les PDF manquants (en masse) : chaque fichier est rattache automatiquement au document du meme nom, tous lots confondus."}
       </div>
-
-      {transverseDocs.length > 0 && (
-        <section className="mb-8 break-inside-avoid">
-          <h3 className="text-base font-semibold border-b border-slate-200 pb-1 mb-2">Documents generaux du projet</h3>
-          <DocTable docs={transverseDocs} />
-        </section>
+      {uploadReport && (
+        <p className="text-xs text-slate-500 -mt-3">
+          {uploadReport.attached} fichier(s) rattache(s)
+          {uploadReport.skipped.length > 0 ? ` · non reconnus : ${uploadReport.skipped.join(", ")}` : ""}.
+        </p>
       )}
 
-      {project.lots.map((lot) => (
-        <section key={lot.id} className="mb-8 break-inside-avoid">
-          <h3 className="text-base font-semibold border-b border-slate-200 pb-1 mb-2">
-            {lot.code} - {lot.name}
-            {lot.subcontractor && <span className="text-slate-400 font-normal"> ({lot.subcontractor.name})</span>}
-          </h3>
-          {(lot.documents || []).length === 0 ? (
-            <p className="text-sm text-slate-400">Aucun document pour ce lot.</p>
-          ) : (
-            <DocTable docs={lot.documents} />
-          )}
-        </section>
-      ))}
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-sm font-medium">Completude par lot</div>
+        <div className="divide-y divide-slate-50">
+          {status.lots.map((l) => (
+            <div key={l.lotId} className="px-4 py-2">
+              <div className="flex items-center gap-3">
+                <span className="font-medium w-14">{l.code}</span>
+                <span className="text-sm text-slate-500 flex-1 truncate">{l.name}</span>
+                <span className="text-xs text-slate-400">{l.docsWithFile}/{l.docs} fichiers</span>
+                <div className="w-32 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full ${l.completeness === 100 ? "bg-green-500" : "bg-amber-500"}`}
+                    style={{ width: `${l.completeness ?? 0}%` }}
+                  />
+                </div>
+                <span className={`text-sm w-12 text-right font-medium ${l.completeness === 100 ? "text-green-700" : l.completeness === null ? "text-slate-400" : "text-amber-700"}`}>
+                  {l.completeness === null ? "n/a" : `${l.completeness} %`}
+                </span>
+                {l.missing.length > 0 ? (
+                  <button onClick={() => setExpanded(expanded === l.lotId ? null : l.lotId)} className="text-xs text-red-600 underline w-24 text-right">
+                    {expanded === l.lotId ? "masquer" : `${l.missing.length} manquant(s)`}
+                  </button>
+                ) : (
+                  <span className="w-24 text-right text-xs text-green-600">complet</span>
+                )}
+              </div>
+              {expanded === l.lotId && (
+                <ul className="mt-1 ml-14 space-y-0.5">
+                  {l.missing.map((m, i) => (
+                    <li key={i} className="text-xs text-red-600">
+                      • {m.label} <span className="text-red-400">({m.status === "MANQUANT" ? "aucune fiche" : "fiche sans fichier"})</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
 
-      <p className="text-xs text-slate-400 mt-10 print:mt-6">
-        Document genere automatiquement par l'application de suivi de projet. Les fichiers "Voir" ne sont accessibles
-        qu'en ligne, pas dans la version imprimee.
+      <p className="text-xs text-slate-400">
+        Le PDF complet contient : page de garde, synthese de completude, documents generaux, puis un chapitre par
+        lot (checklist DIU, equipements avec plan de maintenance et prochains entretiens, fiches par logement,
+        documents fusionnes). Les fichiers non PDF sont listes comme « fournis separement ».
       </p>
     </div>
   );
 }
 
-function DocTable({ docs }) {
+function Metric({ label, value, danger }) {
   return (
-    <table className="w-full text-sm border-collapse">
-      <thead>
-        <tr className="text-left text-xs text-slate-400 border-b border-slate-200">
-          <th className="py-1.5 pr-2">Document</th>
-          <th className="py-1.5 pr-2">Categorie</th>
-          <th className="py-1.5 pr-2">Statut</th>
-          <th className="py-1.5 pr-2">Echeance</th>
-        </tr>
-      </thead>
-      <tbody>
-        {docs.map((d) => (
-          <tr key={d.id} className="border-b border-slate-100">
-            <td className="py-1.5 pr-2">{d.name}</td>
-            <td className="py-1.5 pr-2 text-slate-500">{d.category}</td>
-            <td className={`py-1.5 pr-2 ${d.status === "MISSING" ? "text-red-600 font-medium" : "text-slate-600"}`}>
-              {DOC_STATUS_LABELS[d.status] || d.status}
-            </td>
-            <td className="py-1.5 pr-2 text-slate-500">
-              {d.deadline ? new Date(d.deadline).toLocaleDateString("fr-FR") : "-"}
-              {d.fileUrl && (
-                <a href={fileUrl(d.fileUrl)} target="_blank" rel="noreferrer" className="text-brand-600 underline ml-2 print:hidden">
-                  Voir
-                </a>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="bg-slate-100 rounded-md p-4">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className={`text-2xl font-medium ${danger ? "text-red-600" : ""}`}>{value}</div>
+    </div>
   );
 }

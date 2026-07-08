@@ -165,6 +165,7 @@ function buildDiuData({ lot, project, documents, equipments, units }) {
         location: e.location,
         specs: e.specs || [],
         maintenanceIntervalDays: e.maintenanceIntervalDays,
+        lastMaintenanceDate: e.lastMaintenanceDate,
       })),
     units: (units || []).map((u) => ({ name: u.name, specs: u.specs || [] })),
   };

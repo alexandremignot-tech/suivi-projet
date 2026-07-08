@@ -322,6 +322,7 @@ model Equipment {
   lastMaintenanceDate    DateTime?
   notes                  String?
   createdAt              DateTime  @default(now())
+  maintenanceRecords MaintenanceRecord[]
 }
 
 // Colonnes personnalisables du tableau Kanban (ex: A faire, En cours, Termine)
@@ -483,4 +484,17 @@ model AuditLog {
   createdAt      DateTime @default(now())
 
   @@index([organizationId, createdAt])
+}
+
+// Entretien realise sur un equipement (le prochain = lastMaintenanceDate + maintenanceIntervalDays)
+model MaintenanceRecord {
+  id          String    @id @default(uuid())
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  date        DateTime
+  notes       String?
+  userName    String?
+  createdAt   DateTime  @default(now())
+
+  @@index([equipmentId])
 }

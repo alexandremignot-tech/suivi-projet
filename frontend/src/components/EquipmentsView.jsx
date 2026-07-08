@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import client, { fileUrl } from "../api/client";
+import MaintenanceView from "./MaintenanceView";
 
 function computeNextMaintenance(eq) {
   if (!eq.maintenanceIntervalDays) return null;
@@ -44,6 +45,7 @@ const CATEGORY_SUGGESTIONS = [
 ];
 
 export default function EquipmentsView({ project, onChange }) {
+  const [tab, setTab] = useState("inventaire"); // "inventaire" | "maintenance"
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -175,6 +177,27 @@ export default function EquipmentsView({ project, onChange }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex gap-1 border-b border-slate-200 mb-4">
+        <button
+          onClick={() => setTab("inventaire")}
+          className={`px-4 py-2 text-sm rounded-t-md ${tab === "inventaire" ? "bg-white border border-b-0 border-slate-200 font-medium" : "text-slate-500 hover:text-slate-700"}`}
+        >
+          Inventaire
+        </button>
+        <button
+          onClick={() => setTab("maintenance")}
+          className={`px-4 py-2 text-sm rounded-t-md ${tab === "maintenance" ? "bg-white border border-b-0 border-slate-200 font-medium" : "text-slate-500 hover:text-slate-700"}`}
+        >
+          Maintenance
+          {(project.equipments || []).some((e) => e.maintenanceIntervalDays && (!e.lastMaintenanceDate || new Date(new Date(e.lastMaintenanceDate).getTime() + e.maintenanceIntervalDays * 86400000) < new Date())) && (
+            <span className="ml-1 text-red-600">●</span>
+          )}
+        </button>
+      </div>
+      {tab === "maintenance" ? (
+        <MaintenanceView project={project} onChange={onChange} />
+      ) : (
+        <>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="font-medium">Equipements &amp; fiches techniques</h3>
@@ -450,6 +473,8 @@ export default function EquipmentsView({ project, onChange }) {
           </div>
         </div>
       ))}
+      </>
+      )}
     </div>
   );
 }
