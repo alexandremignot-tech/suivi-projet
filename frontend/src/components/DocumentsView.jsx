@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import client, { fileUrl } from "../api/client";
+import BulkTechSheets from "./BulkTechSheets";
 
 // Documents transverses au projet (pas rattaches a un lot precis) : etudes reglementaires,
 // securite, dossier d'intervention ulterieure global. Les documents par lot (RFP/RFQ, contrat,
@@ -103,6 +104,7 @@ export default function DocumentsView({ project, onChange }) {
 
   return (
     <div className="space-y-4">
+      <BulkTechSheets project={project} onChange={onChange} />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-4 text-sm">
           <span className="text-slate-500">

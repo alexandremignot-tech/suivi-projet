@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import client from "../api/client";
 
 // Planning v3 — trois niveaux de zoom sur une echelle en JOURS ENTIERS (exacte, sans decalage) :
@@ -378,7 +378,7 @@ export default function PlanningView({ project, onChange, initialMode }) {
   const HEAD_H = 30;
 
   function GanttView() {
-    const { rangeStart, totalDays, rows, arrows, monthTicks, weekTicks } = useMemo(() => {
+    const { rangeStart, totalDays, rows, arrows, monthTicks, weekTicks } = (() => {
       const dates = [today];
       visibleTasks.forEach((t) => {
         dates.push(taskStart(t), taskEnd(t));
@@ -439,7 +439,7 @@ export default function PlanningView({ project, onChange, initialMode }) {
         if (d.getDay() === 1 && i > 0) weeks.push({ idx: i, iso: isoWeek(d) });
       }
       return { rangeStart: start, totalDays: total, rows: rws, arrows: arr, monthTicks: months, weekTicks: weeks };
-    }, [visibleTasks, project.milestones, filterLot]);
+    })();
 
     const x = (dayIdx) => (dayIdx / totalDays) * 100;
     const todayIdx = diffDays(today, rangeStart);
@@ -483,7 +483,7 @@ export default function PlanningView({ project, onChange, initialMode }) {
                     <button
                       onClick={() => setLinkSource(linkSource?.id === r.t.id ? null : r.t)}
                       title={linkSource?.id === r.t.id ? "Annuler la liaison" : "Lier : clique ensuite sur la tache qui doit ATTENDRE celle-ci"}
-                      className={`text-[11px] flex-shrink-0 ${linkSource?.id === r.t.id ? "text-brand-600 font-bold" : "text-slate-300 opacity-0 group-hover/row:opacity-100 hover:text-brand-600"}`}
+                      className={`text-[11px] flex-shrink-0 ${linkSource?.id === r.t.id ? "text-brand-600 font-bold" : "text-slate-300 hover:text-brand-600"}`}
                     >
                       ⛓
                     </button>
