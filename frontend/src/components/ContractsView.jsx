@@ -144,6 +144,13 @@ export default function ContractsView({ project }) {
   const [showTemplateManager, setShowTemplateManager] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
 
+  // Bases pre-remplies par famille de lot (BB1 geothermie, BB2 energy center, BB3/BB4 distribution
+  // avec choix de materiau, BB4 skid/techniques speciales, BB5 sous-stations HIU...)
+  const [scopeTemplates, setScopeTemplates] = useState([]);
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
+  const [material, setMaterial] = useState("PEX");
+  const [insulationClass, setInsulationClass] = useState("");
+
   const lots = project.lots || [];
 
   async function load() {
@@ -156,6 +163,10 @@ export default function ContractsView({ project }) {
   useEffect(() => {
     load();
     client.get("/subcontractors").then(({ data: subs }) => setSubcontractors(subs));
+    client.get("/lots/scope-templates").then(({ data: templates }) => {
+      setScopeTemplates(templates);
+      if (templates.length > 0) setSelectedTemplateKey(templates[0].key);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
@@ -175,15 +186,21 @@ export default function ContractsView({ project }) {
   }
 
   async function handleLoadStandardTemplate() {
-    if (!lotId) return;
+    if (!lotId || !selectedTemplateKey) return;
     setTemplateSaving(true);
     try {
-      await client.post(`/lots/${lotId}/scope-items/standard`);
+      await client.post(`/lots/${lotId}/scope-items/standard`, {
+        templateKey: selectedTemplateKey,
+        material,
+        insulationClass,
+      });
       await loadLotTemplate(lotId);
     } finally {
       setTemplateSaving(false);
     }
   }
+
+  const selectedTemplate = scopeTemplates.find((t) => t.key === selectedTemplateKey);
 
   async function handleAddTemplateItem() {
     if (!lotId) return;
@@ -285,21 +302,35 @@ export default function ContractsView({ project }) {
     await load();
   }
 
-  async function handleDownload(c) {
-    setDownloadingId(c.id);
+  async function handleDownload(c, format) {
+    setDownloadingId(`${c.id}-${format}`);
     try {
-      const res = await client.get(`/contracts/${c.id}/docx`, { responseType: "blob" });
-      const blob = new Blob([res.data], {
-        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      });
+      const res = await client.get(`/contracts/${c.id}/${format}`, { responseType: "blob" });
+      const mime =
+        format === "pdf"
+          ? "application/pdf"
+          : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+      const blob = new Blob([res.data], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${c.title}.docx`;
+      a.download = `${c.title}.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    } catch (err) {
+      const message =
+        err?.response?.data instanceof Blob
+          ? await err.response.data.text().then((t) => {
+              try {
+                return JSON.parse(t).error;
+              } catch {
+                return null;
+              }
+            })
+          : err?.response?.data?.error;
+      alert(message || `Erreur lors de la generation du ${format}.`);
     } finally {
       setDownloadingId(null);
     }
@@ -377,14 +408,51 @@ export default function ContractsView({ project }) {
                     Ces postes sont reutilises comme point de depart pour chaque nouveau contrat de ce lot (BB).
                   </p>
                   {lotTemplate.length === 0 && (
-                    <button
-                      type="button"
-                      disabled={templateSaving}
-                      onClick={handleLoadStandardTemplate}
-                      className="text-xs text-brand-600 font-medium underline disabled:opacity-50"
-                    >
-                      Charger la checklist standard (Hydraulique / Electricite / Regulation / Mise en service / As-built)
-                    </button>
+                    <div className="space-y-2 bg-slate-50 border border-slate-200 rounded-md p-2">
+                      <p className="text-xs text-slate-500">
+                        Choisis une base pre-remplie selon la nature de ce lot (independant du numero de BB) :
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <select
+                          value={selectedTemplateKey}
+                          onChange={(e) => setSelectedTemplateKey(e.target.value)}
+                          className="col-span-3 border border-slate-300 rounded-md px-2 py-1 text-xs"
+                        >
+                          {scopeTemplates.map((t) => (
+                            <option key={t.key} value={t.key}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedTemplate?.hasMaterial && (
+                          <>
+                            <select
+                              value={material}
+                              onChange={(e) => setMaterial(e.target.value)}
+                              className="border border-slate-300 rounded-md px-2 py-1 text-xs"
+                            >
+                              <option value="PEX">PEX</option>
+                              <option value="Terrendis">Terrendis</option>
+                              <option value="Acier">Acier</option>
+                            </select>
+                            <input
+                              value={insulationClass}
+                              onChange={(e) => setInsulationClass(e.target.value)}
+                              placeholder="Classe d'isolation (optionnel)"
+                              className="col-span-2 border border-slate-300 rounded-md px-2 py-1 text-xs"
+                            />
+                          </>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={templateSaving || !selectedTemplateKey}
+                        onClick={handleLoadStandardTemplate}
+                        className="text-xs text-brand-600 font-medium underline disabled:opacity-50"
+                      >
+                        {templateSaving ? "Chargement..." : "Charger cette base"}
+                      </button>
+                    </div>
                   )}
                   {lotTemplate.map((item) => (
                     <div key={item.id} className="grid grid-cols-5 gap-2 items-start">
@@ -514,11 +582,19 @@ export default function ContractsView({ project }) {
                   <p>Montant forfaitaire : {c.data?.MONTANT_FORFAIT ? `${c.data.MONTANT_FORFAIT} € HTVA` : "—"}</p>
                   <div className="flex gap-3 pt-2">
                     <button
-                      onClick={() => handleDownload(c)}
-                      disabled={downloadingId === c.id}
+                      onClick={() => handleDownload(c, "docx")}
+                      disabled={downloadingId === `${c.id}-docx`}
                       className="text-brand-600 font-medium underline disabled:opacity-50"
                     >
-                      {downloadingId === c.id ? "Generation..." : "Telecharger le .docx"}
+                      {downloadingId === `${c.id}-docx` ? "Generation..." : "Telecharger le .docx"}
+                    </button>
+                    <button
+                      onClick={() => handleDownload(c, "pdf")}
+                      disabled={downloadingId === `${c.id}-pdf`}
+                      className="text-brand-600 font-medium underline disabled:opacity-50"
+                      title="Conversion fidele au Word via LibreOffice"
+                    >
+                      {downloadingId === `${c.id}-pdf` ? "Conversion..." : "Telecharger le .pdf"}
                     </button>
                     <button onClick={() => handleDelete(c.id)} className="text-red-600 font-medium underline">
                       Supprimer
