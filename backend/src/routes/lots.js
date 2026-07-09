@@ -5,8 +5,6 @@ const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
 const { buildDiuData } = require("../utils/diu");
 const { buildDiuPdf } = require("../utils/diuPdf");
-const { buildContractDocx } = require("../utils/contractDocx");
-const { v4: uuid } = require("uuid");
 
 const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads");
 
@@ -121,50 +119,96 @@ router.delete(
   })
 );
 
-// Genere un contrat de sous-entreprise (conditions particulieres KARNO) pour ce lot.
-// body = configuration du generateur ; body.save = true pour l'enregistrer aussi comme
-// Document "Contrat" du lot (fichier stocke en base, visible dans l'app et le DIU).
-router.post(
-  "/:id/contract.docx",
+// --- Checklist type du perimetre contractuel (LotScopeItem) : le "contrat type" par BB ---
+// Alimente le tableau OBJET du generateur de Contrats (voir routes/contracts.js), qui reprend
+// ces postes comme point de depart modulable pour chaque nouveau contrat de ce lot.
+
+// Items standards suggeres quand un lot n'a encore aucune checklist definie
+const STANDARD_SCOPE_ITEMS = [
+  { label: "Hydraulique", commentaire: "Tuyauteries, supports, vannes, equipements, rincage, equilibrage, etc." },
+  { label: "Electricite", commentaire: "Tableaux, protections, cablages, raccordements, controles RGIE, etc." },
+  { label: "Regulation/automation/GTC", commentaire: "Automates, capteurs, actionneurs, I/O, communication, parametrage, etc." },
+  { label: "Mise en service globale", commentaire: "Essais coordonnes, assistance aux autres lots, etc." },
+  { label: "Documentation as-built", commentaire: "Plans, schemas, notices, parametres, etc." },
+];
+
+router.get(
+  "/:id/scope-items",
   asyncHandler(async (req, res) => {
     const lot = await loadWithAccess(req, res);
     if (!lot) return;
-    const bytes = await buildContractDocx(req.body);
+    const items = await prisma.lotScopeItem.findMany({ where: { lotId: lot.id }, orderBy: { order: "asc" } });
+    res.json(items);
+  })
+);
 
-    let documentId = null;
-    if (req.body.save) {
-      const name = `${uuid()}.docx`;
-      const fileName = `K-Contrat-${lot.code}-${(req.body.stNom || "ST").replace(/[^a-zA-Z0-9]/g, "")}.docx`;
-      await prisma.storedFile.create({
-        data: {
-          name,
-          originalName: fileName,
-          mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          size: bytes.length,
-          data: Buffer.from(bytes),
-        },
-      });
-      const docRecord = await prisma.document.create({
-        data: {
-          projectId: lot.projectId,
-          lotId: lot.id,
-          name: `Contrat - ${req.body.stNom || ""} (genere)`,
-          category: "Contrat",
-          subcontractorId: lot.subcontractorId || null,
-          fileUrl: `/uploads/${name}`,
-          fileName,
-          status: "RECEIVED",
-          receivedAt: new Date(),
-          notes: "Genere par le generateur de contrats (template contrat ponctuel de sous-entreprise Karno V4)",
-        },
-      });
-      documentId = docRecord.id;
-    }
+// Cree en une fois les items standards (Hydraulique/Electricite/Regulation/Mise en service/As-built)
+router.post(
+  "/:id/scope-items/standard",
+  asyncHandler(async (req, res) => {
+    const lot = await loadWithAccess(req, res);
+    if (!lot) return;
+    const count = await prisma.lotScopeItem.count({ where: { lotId: lot.id } });
+    const created = await prisma.$transaction(
+      STANDARD_SCOPE_ITEMS.map((item, i) =>
+        prisma.lotScopeItem.create({ data: { lotId: lot.id, label: item.label, commentaire: item.commentaire, order: count + i } })
+      )
+    );
+    res.status(201).json(created);
+  })
+);
 
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    res.setHeader("Content-Disposition", `attachment; filename="Contrat-${lot.code}.docx"`);
-    if (documentId) res.setHeader("X-Document-Id", documentId);
-    res.send(Buffer.from(bytes));
+router.post(
+  "/:id/scope-items",
+  asyncHandler(async (req, res) => {
+    const lot = await loadWithAccess(req, res);
+    if (!lot) return;
+    const { label, commentaire } = req.body;
+    if (!label) return res.status(400).json({ error: "label requis" });
+    const count = await prisma.lotScopeItem.count({ where: { lotId: lot.id } });
+    const item = await prisma.lotScopeItem.create({
+      data: { lotId: lot.id, label, commentaire: commentaire || null, order: count },
+    });
+    res.status(201).json(item);
+  })
+);
+
+async function loadScopeItemWithAccess(req, res) {
+  const item = await prisma.lotScopeItem.findUnique({ where: { id: req.params.itemId } });
+  if (!item) {
+    res.status(404).json({ error: "Item introuvable" });
+    return null;
+  }
+  const lot = await prisma.lot.findUnique({ where: { id: item.lotId } });
+  const project = lot ? await assertProjectAccess(req, lot.projectId) : null;
+  if (!project) {
+    res.status(403).json({ error: "Acces refuse" });
+    return null;
+  }
+  return item;
+}
+
+router.put(
+  "/scope-items/:itemId",
+  asyncHandler(async (req, res) => {
+    const existing = await loadScopeItemWithAccess(req, res);
+    if (!existing) return;
+    const { label, commentaire, order } = req.body;
+    const updated = await prisma.lotScopeItem.update({
+      where: { id: req.params.itemId },
+      data: { label, commentaire, order },
+    });
+    res.json(updated);
+  })
+);
+
+router.delete(
+  "/scope-items/:itemId",
+  asyncHandler(async (req, res) => {
+    const existing = await loadScopeItemWithAccess(req, res);
+    if (!existing) return;
+    await prisma.lotScopeItem.delete({ where: { id: req.params.itemId } });
+    res.status(204).end();
   })
 );
 

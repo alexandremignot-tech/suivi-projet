@@ -1,0 +1,535 @@
+import { useEffect, useState } from "react";
+import client from "../api/client";
+
+// Genere le Contrat de sous-traitance au format .docx officiel KARNO (26 pages : police
+// Montserrat, couleurs de marque, page de garde et structure ENTRE/ET conservees a l'identique
+// du modele fourni). Tous les champs variables du contrat sont regroupes ci-dessous par section.
+function emptyData() {
+  return {
+    PROJET: "",
+    CONTACT_NOM: "",
+    CONTACT_FONCTION: "",
+    CONTACT_EMAIL: "",
+    CONTACT_TEL: "",
+    KARNO_DIR_NOM: "",
+    KARNO_DIR_EMAIL: "",
+    KARNO_DIR_TEL: "",
+    KARNO_PM_NOM: "",
+    KARNO_PM_EMAIL: "",
+    KARNO_PM_TEL: "",
+    ST_NOM: "",
+    ST_ADRESSE: "",
+    ST_BCE: "",
+    ST_SPECIALITE: "",
+    ST_CEO_NOM: "",
+    ST_CONTACT1_NOM: "",
+    ST_CONTACT1_EMAIL: "",
+    ST_CONTACT1_TEL: "",
+    ST_CONTACT2_NOM: "",
+    ST_CONTACT2_FONCTION: "",
+    ST_CONTACT2_EMAIL: "",
+    ST_CONTACT2_TEL: "",
+    ADRESSE_CHANTIER: "",
+    CHECKINWORK: "",
+    DATE_DEBUT: "",
+    DATE_FIN: "",
+    MONTANT_FORFAIT: "",
+    MONTANT_GARANTIE: "",
+    SEUIL_EQUIPEMENT: "",
+    ENTREPRISE_GENERALE: "",
+    RESOLIA_ENG_NOM: "",
+    RESOLIA_ENG_EMAIL: "",
+    RESOLIA_ENG_TEL: "",
+    DATE_SIGNATURE: "",
+  };
+}
+
+const FIELD_GROUPS = [
+  {
+    title: "Reference et contact principal (page de garde)",
+    fields: [
+      ["PROJET", "Reference projet (ex: K-0055 - Chaufferie Wavre)"],
+      ["CONTACT_NOM", "Nom du contact"],
+      ["CONTACT_FONCTION", "Fonction"],
+      ["CONTACT_EMAIL", "Email"],
+      ["CONTACT_TEL", "Telephone"],
+    ],
+  },
+  {
+    title: "KARNO - Directeur de projets",
+    fields: [
+      ["KARNO_DIR_NOM", "Nom"],
+      ["KARNO_DIR_EMAIL", "Email"],
+      ["KARNO_DIR_TEL", "GSM"],
+    ],
+  },
+  {
+    title: "KARNO - Project manager Build",
+    fields: [
+      ["KARNO_PM_NOM", "Nom"],
+      ["KARNO_PM_EMAIL", "Email"],
+      ["KARNO_PM_TEL", "GSM"],
+    ],
+  },
+  {
+    title: "Sous-traitant - Identification",
+    fields: [
+      ["ST_NOM", "Nom de l'entreprise"],
+      ["ST_ADRESSE", "Adresse legale"],
+      ["ST_BCE", "Numero BCE"],
+      ["ST_SPECIALITE", "Specialite"],
+      ["ST_CEO_NOM", "Nom du CEO / Administrateur"],
+    ],
+  },
+  {
+    title: "Sous-traitant - Contact 1 (Administrateur/CEO)",
+    fields: [
+      ["ST_CONTACT1_NOM", "Nom"],
+      ["ST_CONTACT1_EMAIL", "Email"],
+      ["ST_CONTACT1_TEL", "GSM"],
+    ],
+  },
+  {
+    title: "Sous-traitant - Contact 2",
+    fields: [
+      ["ST_CONTACT2_NOM", "Nom"],
+      ["ST_CONTACT2_FONCTION", "Fonction"],
+      ["ST_CONTACT2_EMAIL", "Email"],
+      ["ST_CONTACT2_TEL", "GSM"],
+    ],
+  },
+  {
+    title: "Chantier",
+    fields: [
+      ["ADRESSE_CHANTIER", "Adresse du chantier"],
+      ["CHECKINWORK", "Numero checkin@work"],
+      ["ENTREPRISE_GENERALE", "Entreprise generale du projet (eau/electricite/sanitaires)"],
+    ],
+  },
+  {
+    title: "Dates et montants",
+    fields: [
+      ["DATE_DEBUT", "Date de debut des travaux (ex: 1er septembre 2026)"],
+      ["DATE_FIN", "Date de fin des travaux"],
+      ["MONTANT_FORFAIT", "Montant forfaitaire HTVA (€)", "number"],
+      ["MONTANT_GARANTIE", "Retenue de garantie HTVA (€, 10% par defaut)", "number"],
+      ["SEUIL_EQUIPEMENT", "Seuil de valorisation equipement HTVA (€, 5% par defaut)", "number"],
+      ["DATE_SIGNATURE", "Date de signature"],
+    ],
+  },
+  {
+    title: "Resolia (Assistant maitrise d'ouvrage)",
+    fields: [
+      ["RESOLIA_ENG_NOM", "Nom de l'ingenieur"],
+      ["RESOLIA_ENG_EMAIL", "Email"],
+      ["RESOLIA_ENG_TEL", "GSM"],
+    ],
+  },
+];
+
+export default function ContractsView({ project }) {
+  const [list, setList] = useState([]);
+  const [subcontractors, setSubcontractors] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [title, setTitle] = useState("");
+  const [lotId, setLotId] = useState("");
+  const [subcontractorId, setSubcontractorId] = useState("");
+  const [data, setData] = useState(emptyData());
+  const [scope, setScope] = useState([]); // checklist du contrat en cours (editable)
+  const [lotTemplate, setLotTemplate] = useState([]); // "contrat type" du lot selectionne (LotScopeItem)
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+
+  const lots = project.lots || [];
+
+  async function load() {
+    setLoading(true);
+    const { data: rows } = await client.get("/contracts", { params: { projectId: project.id } });
+    setList(rows);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+    client.get("/subcontractors").then(({ data: subs }) => setSubcontractors(subs));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
+
+  async function loadLotTemplate(id) {
+    if (!id) {
+      setLotTemplate([]);
+      return;
+    }
+    const { data: items } = await client.get(`/lots/${id}/scope-items`);
+    setLotTemplate(items);
+    setScope(items.map((i) => ({ label: i.label, commentaire: i.commentaire || "", inclus: true })));
+  }
+
+  function handleLotSelect(id) {
+    setLotId(id);
+    loadLotTemplate(id);
+  }
+
+  async function handleLoadStandardTemplate() {
+    if (!lotId) return;
+    setTemplateSaving(true);
+    try {
+      await client.post(`/lots/${lotId}/scope-items/standard`);
+      await loadLotTemplate(lotId);
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
+  async function handleAddTemplateItem() {
+    if (!lotId) return;
+    setTemplateSaving(true);
+    try {
+      await client.post(`/lots/${lotId}/scope-items`, { label: "Nouveau poste", commentaire: "" });
+      await loadLotTemplate(lotId);
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
+  async function handleUpdateTemplateItem(itemId, fields) {
+    await client.put(`/lots/scope-items/${itemId}`, fields);
+    await loadLotTemplate(lotId);
+  }
+
+  async function handleDeleteTemplateItem(itemId) {
+    await client.delete(`/lots/scope-items/${itemId}`);
+    await loadLotTemplate(lotId);
+  }
+
+  function toggleScopeInclus(i) {
+    setScope((s) => s.map((item, idx) => (idx === i ? { ...item, inclus: !item.inclus } : item)));
+  }
+
+  function updateScopeCommentaire(i, value) {
+    setScope((s) => s.map((item, idx) => (idx === i ? { ...item, commentaire: value } : item)));
+  }
+
+  function addAdHocScopeLine() {
+    setScope((s) => [...s, { label: "", commentaire: "", inclus: true }]);
+  }
+
+  function updateScopeLabel(i, value) {
+    setScope((s) => s.map((item, idx) => (idx === i ? { ...item, label: value } : item)));
+  }
+
+  function removeScopeLine(i) {
+    setScope((s) => s.filter((_, idx) => idx !== i));
+  }
+
+  function updateField(key, value) {
+    setData((d) => {
+      const next = { ...d, [key]: value };
+      if (key === "MONTANT_FORFAIT" && value) {
+        const n = Number(value);
+        if (!Number.isNaN(n)) {
+          next.MONTANT_GARANTIE = next.MONTANT_GARANTIE || String(Math.round(n * 0.1 * 100) / 100);
+          next.SEUIL_EQUIPEMENT = next.SEUIL_EQUIPEMENT || String(Math.round(n * 0.05 * 100) / 100);
+        }
+      }
+      return next;
+    });
+  }
+
+  function handleSubcontractorSelect(id) {
+    setSubcontractorId(id);
+    const sub = subcontractors.find((s) => s.id === id);
+    if (sub) {
+      setData((d) => ({
+        ...d,
+        ST_NOM: d.ST_NOM || sub.name || "",
+        ST_SPECIALITE: d.ST_SPECIALITE || sub.specialty || "",
+        ST_CONTACT1_NOM: d.ST_CONTACT1_NOM || sub.contactName || "",
+        ST_CONTACT1_EMAIL: d.ST_CONTACT1_EMAIL || sub.email || "",
+        ST_CONTACT1_TEL: d.ST_CONTACT1_TEL || sub.phone || "",
+      }));
+    }
+  }
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await client.post("/contracts", {
+        projectId: project.id,
+        lotId: lotId || null,
+        subcontractorId: subcontractorId || null,
+        title,
+        data: { ...data, SCOPE: scope },
+      });
+      setTitle("");
+      setLotId("");
+      setSubcontractorId("");
+      setData(emptyData());
+      setScope([]);
+      setLotTemplate([]);
+      setShowForm(false);
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm("Supprimer ce contrat ?")) return;
+    await client.delete(`/contracts/${id}`);
+    await load();
+  }
+
+  async function handleDownload(c) {
+    setDownloadingId(c.id);
+    try {
+      const res = await client.get(`/contracts/${c.id}/docx`, { responseType: "blob" });
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${c.title}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-medium">Contrats de sous-traitance</h3>
+          <p className="text-xs text-slate-500">
+            Genere un document .docx au format officiel KARNO (26 pages, police Montserrat, couleurs et
+            page de garde du modele conserves).
+          </p>
+        </div>
+        <button onClick={() => setShowForm((v) => !v)} className="text-sm text-brand-600 font-medium">
+          {showForm ? "Annuler" : "+ Nouveau contrat"}
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleCreate} className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            <input
+              required
+              placeholder="Libelle du contrat (ex: Chauffage Wallon - Chaufferie Wavre)"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="col-span-3 border border-slate-300 rounded-md px-3 py-2 text-sm"
+            />
+            <select
+              value={lotId}
+              onChange={(e) => handleLotSelect(e.target.value)}
+              className="border border-slate-300 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">Lot concerne (optionnel)</option>
+              {lots.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.code} - {l.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={subcontractorId}
+              onChange={(e) => handleSubcontractorSelect(e.target.value)}
+              className="col-span-2 border border-slate-300 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">Pre-remplir depuis un sous-traitant existant (optionnel)</option>
+              {subcontractors.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {lotId && (
+            <div className="border border-slate-200 rounded-md p-3 bg-slate-50">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-slate-600">
+                  Perimetre contractuel (checklist) — repris du "contrat type" du lot, modulable pour ce contrat
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateManager((v) => !v)}
+                  className="text-xs text-brand-600 font-medium"
+                >
+                  {showTemplateManager ? "Fermer la gestion du contrat type" : "Gerer le contrat type de ce lot"}
+                </button>
+              </div>
+
+              {showTemplateManager && (
+                <div className="mb-3 bg-white border border-slate-200 rounded-md p-3 space-y-2">
+                  <p className="text-xs text-slate-500">
+                    Ces postes sont reutilises comme point de depart pour chaque nouveau contrat de ce lot (BB).
+                  </p>
+                  {lotTemplate.length === 0 && (
+                    <button
+                      type="button"
+                      disabled={templateSaving}
+                      onClick={handleLoadStandardTemplate}
+                      className="text-xs text-brand-600 font-medium underline disabled:opacity-50"
+                    >
+                      Charger la checklist standard (Hydraulique / Electricite / Regulation / Mise en service / As-built)
+                    </button>
+                  )}
+                  {lotTemplate.map((item) => (
+                    <div key={item.id} className="grid grid-cols-5 gap-2 items-start">
+                      <input
+                        value={item.label}
+                        onChange={(e) => handleUpdateTemplateItem(item.id, { label: e.target.value })}
+                        className="border border-slate-300 rounded-md px-2 py-1 text-xs"
+                      />
+                      <input
+                        value={item.commentaire || ""}
+                        onChange={(e) => handleUpdateTemplateItem(item.id, { commentaire: e.target.value })}
+                        placeholder="Description type du perimetre"
+                        className="col-span-3 border border-slate-300 rounded-md px-2 py-1 text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTemplateItem(item.id)}
+                        className="text-xs text-red-600 underline"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={handleAddTemplateItem}
+                    disabled={templateSaving}
+                    className="text-xs text-brand-600 font-medium"
+                  >
+                    + Ajouter un poste au contrat type
+                  </button>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                {scope.length === 0 && (
+                  <p className="text-xs text-slate-400">
+                    Aucun poste dans la checklist. Chargez le contrat type ci-dessus ou ajoutez une ligne ponctuelle.
+                  </p>
+                )}
+                {scope.map((item, i) => (
+                  <div key={i} className="flex items-start gap-2 bg-white border border-slate-200 rounded-md p-2">
+                    <input
+                      type="checkbox"
+                      checked={item.inclus}
+                      onChange={() => toggleScopeInclus(i)}
+                      className="mt-1"
+                      title="Inclus dans ce contrat"
+                    />
+                    <input
+                      value={item.label}
+                      onChange={(e) => updateScopeLabel(i, e.target.value)}
+                      placeholder="Poste (ex: Hydraulique)"
+                      className="w-40 border border-slate-300 rounded-md px-2 py-1 text-xs"
+                    />
+                    <input
+                      value={item.commentaire}
+                      onChange={(e) => updateScopeCommentaire(i, e.target.value)}
+                      placeholder="Commentaire"
+                      className="flex-1 border border-slate-300 rounded-md px-2 py-1 text-xs"
+                    />
+                    <span className={`text-xs font-medium mt-1 ${item.inclus ? "text-green-600" : "text-slate-400"}`}>
+                      {item.inclus ? "Inclus" : "Non inclus"}
+                    </span>
+                    <button type="button" onClick={() => removeScopeLine(i)} className="text-xs text-red-600 underline mt-1">
+                      x
+                    </button>
+                  </div>
+                ))}
+                <button type="button" onClick={addAdHocScopeLine} className="text-xs text-brand-600 font-medium">
+                  + Ajouter une ligne ponctuelle (pour ce contrat uniquement)
+                </button>
+              </div>
+            </div>
+          )}
+
+          {FIELD_GROUPS.map((group) => (
+            <div key={group.title}>
+              <p className="text-xs font-medium text-slate-600 mb-2">{group.title}</p>
+              <div className="grid grid-cols-3 gap-2">
+                {group.fields.map(([key, label, type]) => (
+                  <input
+                    key={key}
+                    type={type === "number" ? "number" : "text"}
+                    step={type === "number" ? "0.01" : undefined}
+                    placeholder={label}
+                    value={data[key]}
+                    onChange={(e) => updateField(key, e.target.value)}
+                    className="border border-slate-300 rounded-md px-2 py-1.5 text-xs"
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full bg-brand-600 text-white text-sm py-2 rounded-md disabled:opacity-50"
+          >
+            {saving ? "Enregistrement..." : "Creer le contrat"}
+          </button>
+        </form>
+      )}
+
+      <div className="space-y-3">
+        {loading && <p className="text-sm text-slate-500">Chargement...</p>}
+        {!loading && list.length === 0 && <p className="text-sm text-slate-500">Aucun contrat pour ce projet.</p>}
+        {list.map((c) => {
+          const expanded = expandedId === c.id;
+          return (
+            <div key={c.id} className="bg-white border border-slate-200 rounded-lg p-4">
+              <div className="flex items-center justify-between cursor-pointer" onClick={() => setExpandedId(expanded ? null : c.id)}>
+                <div>
+                  <span className="font-medium text-sm">{c.title}</span>
+                  {c.lot && <span className="text-xs text-slate-400 ml-2">· {c.lot.code}</span>}
+                  {c.subcontractor && <span className="text-xs text-slate-400 ml-2">· {c.subcontractor.name}</span>}
+                  <span className="text-xs text-slate-400 ml-2">{new Date(c.createdAt).toLocaleDateString("fr-FR")}</span>
+                </div>
+                <span className="text-xs text-brand-600">{expanded ? "Reduire" : "Voir le detail"}</span>
+              </div>
+
+              {expanded && (
+                <div className="mt-3 space-y-2 text-xs text-slate-600">
+                  <p>Reference : {c.data?.PROJET || "—"}</p>
+                  <p>Sous-traitant : {c.data?.ST_NOM || "—"}</p>
+                  <p>Montant forfaitaire : {c.data?.MONTANT_FORFAIT ? `${c.data.MONTANT_FORFAIT} € HTVA` : "—"}</p>
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => handleDownload(c)}
+                      disabled={downloadingId === c.id}
+                      className="text-brand-600 font-medium underline disabled:opacity-50"
+                    >
+                      {downloadingId === c.id ? "Generation..." : "Telecharger le .docx"}
+                    </button>
+                    <button onClick={() => handleDelete(c.id)} className="text-red-600 font-medium underline">
+                      Supprimer
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

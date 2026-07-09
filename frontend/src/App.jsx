@@ -9,6 +9,7 @@ import AsBuiltExport from "./pages/AsBuiltExport";
 import DiuExport from "./pages/DiuExport";
 import History from "./pages/History";
 import Alerts from "./pages/Alerts";
+import Coverage from "./pages/Coverage";
 import Layout from "./components/Layout";
 
 function PrivateRoute({ children }) {
@@ -85,6 +86,16 @@ export default function App() {
           <PrivateRoute>
             <Layout>
               <Subcontractors />
+            </Layout>
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/coverage"
+        element={
+          <PrivateRoute>
+            <Layout>
+              <Coverage />
             </Layout>
           </PrivateRoute>
         }

@@ -29,6 +29,11 @@ const auditRoutes = require("./routes/audit");
 const auditLogger = require("./utils/auditLogger");
 const prisma = require("./db");
 
+// Ajouts KARNO : PV de chantier, Contrats (vrai template), Couverture (vacances)
+const meetingMinutesRoutes = require("./routes/meetingMinutes");
+const contractRoutes = require("./routes/contracts");
+const vacationBackupRoutes = require("./routes/backups");
+
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -38,8 +43,6 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 app.use(express.json());
 app.use(morgan("dev"));
 app.use(auditLogger); // journal des modifications (non bloquant)
-// Fichiers : d'abord la base de donnees (persistante), puis le disque en secours
-// (anciens fichiers uploades avant la migration vers StoredFile).
 app.get("/uploads/:name", async (req, res, next) => {
   try {
     const file = await prisma.storedFile.findUnique({ where: { name: req.params.name } });
@@ -75,9 +78,13 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/issues", issueRoutes);
 app.use("/api/backup", backupRoutes);
 app.use("/api/audit", auditRoutes);
+app.use("/api/meeting-minutes", meetingMinutesRoutes);
+app.use("/api/contracts", contractRoutes);
+// Couverture d'absence (vacances) : /api/backups (pluriel) ne collisionne pas avec /api/backup
+// (singulier, export/restauration complete de la base, ci-dessus).
+app.use("/api/backups", vacationBackupRoutes);
 app.use("/api", unitRoutes);
 
-// Gestion d'erreurs centralisee
 app.use((err, req, res, next) => {
   console.error(err);
   res.status(err.status || 500).json({ error: err.message || "Erreur serveur" });

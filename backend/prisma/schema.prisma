@@ -95,6 +95,7 @@ model Organization {
   users     User[]
   projects  Project[]
   subcontractors Subcontractor[]
+  backups   Backup[]
 }
 
 model User {
@@ -115,6 +116,10 @@ model User {
   // Integration Google Calendar (OAuth) - rempli une fois l'utilisateur connecte a Google
   googleRefreshToken String?
   googleEmail        String?
+
+  // Couverture d'absence (vacances) : backups ou je suis le titulaire / le collegue de couverture
+  backupsAsOwner    Backup[] @relation("BackupOwner")
+  backupsAsDelegate Backup[] @relation("BackupDelegate")
 }
 
 // Table de jointure pour les membres d'un projet (au sein d'une organisation)
@@ -157,6 +162,8 @@ model Project {
   siteReports SiteReport[]
   lots        Lot[]
   issues             Issue[]
+  meetingMinutes     MeetingMinutes[]
+  contracts          Contract[]
 }
 
 // Un lot (ex: "BB1 - Forage geothermique") : decoupage reel d'un projet en sous-contrats,
@@ -184,6 +191,9 @@ model Lot {
   units              Unit[]
   issues             Issue[]
   equipments         Equipment[]
+  meetingMinutes     MeetingMinutes[]
+  contracts          Contract[]
+  scopeItems         LotScopeItem[]
 }
 
 // Etape type d'une checklist repetable (ex, pour BB5 : Piquage reseau, Booster, Sous-station...).
@@ -275,6 +285,7 @@ model Subcontractor {
   budgetItems        BudgetItem[]
   unitStepTemplates  UnitStepTemplate[]
   unitSteps          UnitStep[]
+  contracts          Contract[]
 }
 
 // Document attendu ou recu pour un projet (dossier As-built, certificats, plans, etc.)
@@ -322,7 +333,6 @@ model Equipment {
   lastMaintenanceDate    DateTime?
   notes                  String?
   createdAt              DateTime  @default(now())
-  maintenanceRecords MaintenanceRecord[]
 }
 
 // Colonnes personnalisables du tableau Kanban (ex: A faire, En cours, Termine)
@@ -486,15 +496,62 @@ model AuditLog {
   @@index([organizationId, createdAt])
 }
 
-// Entretien realise sur un equipement (le prochain = lastMaintenanceDate + maintenanceIntervalDays)
-model MaintenanceRecord {
-  id          String    @id @default(uuid())
-  equipmentId String
-  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
-  date        DateTime
-  notes       String?
-  userName    String?
-  createdAt   DateTime  @default(now())
+// --- Ajouts KARNO : PV de chantier, Contrats (vrai template), checklist type par lot, Couverture ---
 
-  @@index([equipmentId])
+// PV de chantier genere au format .docx officiel KARNO (Montserrat, couleurs de marque)
+model MeetingMinutes {
+  id              String   @id @default(uuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId           String?
+  lot             Lot?     @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  numero          Int
+  reference       String
+  dateReunion     DateTime
+  datePublication DateTime @default(now())
+  auteur          String
+  attendees       Json // [{ company, name, role, email, tel, presence }]
+  observations    Json // [{ ref, title, body, resp, pourLe }]
+  createdAt       DateTime @default(now())
+}
+
+// Contrat de sous-traitance genere au format .docx officiel KARNO (26 pages, vrai template)
+model Contract {
+  id              String         @id @default(uuid())
+  projectId       String
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId           String?
+  lot             Lot?           @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  subcontractorId String?
+  subcontractor   Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  title           String
+  data            Json // tous les champs variables du contrat (voir contracts.js FIELD_KEYS) + SCOPE
+  createdAt       DateTime       @default(now())
+}
+
+// Poste type de la checklist de perimetre contractuel d'un lot (le "contrat type" par BB),
+// reutilise comme point de depart modulable a chaque nouveau contrat de ce lot.
+model LotScopeItem {
+  id          String   @id @default(uuid())
+  lotId       String
+  lot         Lot      @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  label       String
+  commentaire String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+// Couverture d'absence (vacances) : todo calculee a la volee pour un collegue designe
+model Backup {
+  id             String       @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownerId        String
+  owner          User         @relation("BackupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  delegateId     String
+  delegate       User         @relation("BackupDelegate", fields: [delegateId], references: [id], onDelete: Cascade)
+  startDate      DateTime
+  endDate        DateTime
+  note           String?
+  createdAt      DateTime     @default(now())
 }

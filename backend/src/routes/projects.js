@@ -2,10 +2,6 @@ const express = require("express");
 const prisma = require("../db");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
-const pathMod = require("path");
-const fsMod = require("fs");
-const { buildDiuData } = require("../utils/diu");
-const { buildAsbuiltPdf } = require("../utils/asbuiltPdf");
 const { getTemplate, getLotTemplate } = require("../utils/projectTemplates");
 
 const router = express.Router();
@@ -151,10 +147,7 @@ router.get(
         documents: { orderBy: { createdAt: "desc" }, include: { subcontractor: true } },
         equipments: {
           orderBy: { createdAt: "desc" },
-          include: {
-            lot: { select: { id: true, code: true, name: true } },
-            maintenanceRecords: { orderBy: { date: "desc" } },
-          },
+          include: { lot: { select: { id: true, code: true, name: true } } },
         },
         siteReports: { orderBy: { date: "desc" }, include: { photos: true, author: { select: { id: true, name: true } } } },
         lots: {
@@ -168,6 +161,7 @@ router.get(
               orderBy: { name: "asc" },
               include: { steps: true },
             },
+            scopeItems: { orderBy: { order: "asc" } },
           },
         },
       },
@@ -229,80 +223,6 @@ router.post(
       create: { projectId: req.params.id, userId },
     });
     res.status(201).json(member);
-  })
-);
-
-
-// ----- Dossier as-built complet -----
-const ASBUILT_UPLOAD_DIR = pathMod.join(__dirname, "..", "..", "uploads");
-
-async function loadAsbuiltData(req) {
-  const project = await prisma.project.findFirst({
-    where: { id: req.params.id, organizationId: req.user.organizationId },
-    include: {
-      lots: { orderBy: { order: "asc" }, include: { subcontractor: true, units: { orderBy: { name: "asc" } } } },
-    },
-  });
-  if (!project) return null;
-  const [documents, equipments] = await Promise.all([
-    prisma.document.findMany({ where: { projectId: project.id }, orderBy: { name: "asc" } }),
-    prisma.equipment.findMany({ where: { projectId: project.id }, orderBy: { name: "asc" } }),
-  ]);
-  const dius = project.lots.map((lot) => ({
-    lot,
-    diu: buildDiuData({ lot, project, documents, equipments, units: lot.units }),
-  }));
-  const transverseDocs = documents.filter((d) => !d.lotId);
-  return { project, dius, transverseDocs };
-}
-
-// Synthese JSON pour la page de controle (completude par lot)
-router.get(
-  "/:id/asbuilt-status",
-  asyncHandler(async (req, res) => {
-    const data = await loadAsbuiltData(req);
-    if (!data) return res.status(404).json({ error: "Projet introuvable" });
-    res.json({
-      lots: data.dius.map(({ lot, diu }) => ({
-        lotId: lot.id,
-        code: lot.code,
-        name: lot.name,
-        completeness: diu.completeness,
-        missing: diu.required.filter((r) => r.status !== "OK").map((r) => ({ label: r.label, status: r.status })),
-        docs: diu.sections.reduce((s, x) => s + x.docs.length, 0),
-        docsWithFile: diu.sections.reduce((s, x) => s + x.docs.filter((d) => d.fileUrl).length, 0),
-      })),
-      transverse: {
-        total: data.transverseDocs.length,
-        withFile: data.transverseDocs.filter((d) => d.fileUrl).length,
-      },
-    });
-  })
-);
-
-// Le dossier complet en un seul PDF
-router.get(
-  "/:id/asbuilt.pdf",
-  asyncHandler(async (req, res) => {
-    const data = await loadAsbuiltData(req);
-    if (!data) return res.status(404).json({ error: "Projet introuvable" });
-    const readFile = async (fileUrl) => {
-      const name = pathMod.basename(fileUrl);
-      const stored = await prisma.storedFile.findUnique({ where: { name } });
-      if (stored) return Buffer.from(stored.data);
-      try {
-        return fsMod.readFileSync(pathMod.join(ASBUILT_UPLOAD_DIR, name));
-      } catch {
-        return null;
-      }
-    };
-    const { bytes, merged, failures, attachments } = await buildAsbuiltPdf({ ...data, readFile });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="AsBuilt-${data.project.name.replace(/[^a-zA-Z0-9-]/g, "_")}.pdf"`);
-    res.setHeader("X-Asbuilt-Merged", String(merged));
-    res.setHeader("X-Asbuilt-Failures", String(failures));
-    res.setHeader("X-Asbuilt-Attachments", String(attachments));
-    res.send(Buffer.from(bytes));
   })
 );
 

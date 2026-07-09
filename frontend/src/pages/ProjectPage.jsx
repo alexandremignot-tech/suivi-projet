@@ -11,6 +11,8 @@ import IssuesView from "../components/IssuesView";
 import IntegrationsView from "../components/IntegrationsView";
 import LotsView from "../components/LotsView";
 import OverviewView from "../components/OverviewView";
+import MeetingMinutesView from "../components/MeetingMinutesView";
+import ContractsView from "../components/ContractsView";
 
 const TABS = [
   { key: "overview", label: "Vue d'ensemble" },
@@ -21,6 +23,8 @@ const TABS = [
   { key: "documents", label: "Documents transverses" },
   { key: "equipments", label: "Equipements & Maintenance" },
   { key: "chantier", label: "Suivi de chantier" },
+  { key: "pv", label: "PV de chantier" },
+  { key: "contrats", label: "Contrats" },
   { key: "points", label: "Points ouverts" },
   { key: "integrations", label: "Integrations" },
 ];
@@ -92,12 +96,12 @@ export default function ProjectPage() {
         </div>
       </div>
 
-      <div className="flex border-b border-slate-200 mb-6">
+      <div className="flex border-b border-slate-200 mb-6 overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap ${
               tab === t.key ? "border-brand-600 text-brand-600" : "border-transparent text-slate-500 hover:text-slate-800"
             }`}
           >
@@ -114,6 +118,8 @@ export default function ProjectPage() {
       {tab === "documents" && <DocumentsView project={project} onChange={loadProject} />}
       {tab === "equipments" && <EquipmentsView project={project} onChange={loadProject} />}
       {tab === "chantier" && <SiteReportsView project={project} onChange={loadProject} />}
+      {tab === "pv" && <MeetingMinutesView project={project} onChange={loadProject} />}
+      {tab === "contrats" && <ContractsView project={project} onChange={loadProject} />}
       {tab === "points" && <IssuesView project={project} onChange={loadProject} />}
       {tab === "integrations" && <IntegrationsView project={project} onChange={loadProject} />}
     </div>

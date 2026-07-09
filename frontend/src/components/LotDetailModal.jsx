@@ -2,7 +2,6 @@ import { useState } from "react";
 import client, { fileUrl } from "../api/client";
 import UnitsGrid from "./UnitsGrid";
 import EAEditor from "./EAEditor";
-import ContractGenerator from "./ContractGenerator";
 
 const DOCUMENT_CATEGORIES = [
   "RFP / RFQ",
@@ -38,7 +37,6 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
   const [statementFile, setStatementFile] = useState(null);
   const [showStatementForm, setShowStatementForm] = useState(false);
   const [eaEditor, setEaEditor] = useState(null); // { statement? } editeur d'EA detaille par postes
-  const [showContract, setShowContract] = useState(false);
   const [expandedStatement, setExpandedStatement] = useState(null);
 
   const documents = (project.documents || []).filter((d) => d.lotId === lot.id);
@@ -121,13 +119,9 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-semibold">Lot {lot.code}</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowContract(true)}
-                  className="text-xs bg-brand-50 border border-brand-200 text-brand-700 rounded-md px-2 py-1 hover:bg-brand-100"
-                >
-                  Generer un contrat
-                </button>
+                <span className="text-xs text-slate-400">
+                  Generer un contrat : onglet "Contrats" du projet
+                </span>
               </div>
               <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">
                 ✕
@@ -425,19 +419,6 @@ export default function LotDetailModal({ project, lot, subcontractors, onClose, 
           </div>
         </div>
       </div>
-
-      {showContract && (
-        <ContractGenerator
-          project={project}
-          lot={lot}
-          subcontractors={subcontractors}
-          onClose={() => setShowContract(false)}
-          onSaved={() => {
-            setShowContract(false);
-            onChange();
-          }}
-        />
-      )}
 
       {eaEditor && (
         <EAEditor

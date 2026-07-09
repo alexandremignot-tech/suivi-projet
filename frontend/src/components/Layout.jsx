@@ -64,6 +64,9 @@ export default function Layout({ children }) {
           <Link to="/history" className="text-sm text-slate-600 hover:text-brand-600">
             Historique
           </Link>
+          <Link to="/coverage" className="text-sm text-slate-600 hover:text-brand-600">
+            Couverture
+          </Link>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <button
