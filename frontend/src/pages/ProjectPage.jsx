@@ -13,6 +13,7 @@ import LotsView from "../components/LotsView";
 import OverviewView from "../components/OverviewView";
 import MeetingMinutesView from "../components/MeetingMinutesView";
 import ContractsView from "../components/ContractsView";
+import ProjectAssistant from "../components/ProjectAssistant";
 
 const TABS = [
   { key: "overview", label: "Vue d'ensemble" },
@@ -122,6 +123,8 @@ export default function ProjectPage() {
       {tab === "contrats" && <ContractsView project={project} onChange={loadProject} />}
       {tab === "points" && <IssuesView project={project} onChange={loadProject} />}
       {tab === "integrations" && <IntegrationsView project={project} onChange={loadProject} />}
+
+      <ProjectAssistant project={project} onChange={loadProject} />
     </div>
   );
 }

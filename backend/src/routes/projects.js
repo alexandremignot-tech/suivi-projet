@@ -3,6 +3,7 @@ const prisma = require("../db");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
 const { getTemplate, getLotTemplate } = require("../utils/projectTemplates");
+const { generateProjectAnswer, executeAction } = require("../utils/aiAssistant");
 
 const router = express.Router();
 router.use(requireAuth);
@@ -223,6 +224,67 @@ router.post(
       create: { projectId: req.params.id, userId },
     });
     res.status(201).json(member);
+  })
+);
+
+// Assistant IA du projet : question en langage naturel, reponse basee uniquement sur les
+// donnees reelles du projet (lecture seule, aucune ecriture). Voir utils/aiAssistant.js.
+router.post(
+  "/:id/ask",
+  asyncHandler(async (req, res) => {
+    const existing = await loadProjectOrFail(req, res);
+    if (!existing) return;
+
+    const { question, history } = req.body;
+    if (!question || !question.trim()) return res.status(400).json({ error: "question requise" });
+
+    const project = await prisma.project.findUnique({
+      where: { id: req.params.id },
+      include: {
+        columns: true,
+        tasks: true,
+        milestones: true,
+        budgetItems: true,
+        documents: true,
+        lots: { include: { subcontractor: true, documents: true, units: true } },
+      },
+    });
+
+    // Issue appartient au schema mais n'est pas systematiquement inclus dans GET /projects/:id ;
+    // requete separee pour ne pas modifier cette route existante.
+    const issues = await prisma.issue.findMany({ where: { projectId: req.params.id }, orderBy: { number: "asc" } }).catch(() => []);
+    const meetingMinutes = await prisma.meetingMinutes
+      .findMany({ where: { projectId: req.params.id }, orderBy: { numero: "desc" } })
+      .catch(() => []);
+    const contracts = await prisma.contract
+      .findMany({ where: { projectId: req.params.id }, orderBy: { createdAt: "desc" } })
+      .catch(() => []);
+
+    const result = await generateProjectAnswer({ project, issues, meetingMinutes, contracts, question, history });
+    res.json(result);
+  })
+);
+
+// Confirme et execute une action proposee par l'assistant IA (voir utils/aiAssistant.js). C'est
+// le seul point d'ecriture du mecanisme d'assistant : le "type" et le "payload" sont revalides
+// integralement cote serveur (listes blanches), independamment de ce que le modele a propose.
+// req.params.id (deja verifie appartenir a l'organisation de l'utilisateur ci-dessus) sert de
+// perimetre : impossible d'agir sur un autre projet via cette route.
+router.post(
+  "/:id/actions/confirm",
+  asyncHandler(async (req, res) => {
+    const existing = await loadProjectOrFail(req, res);
+    if (!existing) return;
+
+    const { type, payload } = req.body;
+    if (!type || !payload) return res.status(400).json({ error: "type et payload sont requis" });
+
+    try {
+      const result = await executeAction(prisma, req.params.id, type, payload);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message || "Impossible d'executer cette action" });
+    }
   })
 );
 
