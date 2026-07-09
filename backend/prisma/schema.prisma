@@ -164,6 +164,7 @@ model Project {
   issues             Issue[]
   meetingMinutes     MeetingMinutes[]
   contracts          Contract[]
+  quoteComparisons   QuoteComparison[]
 }
 
 // Un lot (ex: "BB1 - Forage geothermique") : decoupage reel d'un projet en sous-contrats,
@@ -194,6 +195,7 @@ model Lot {
   meetingMinutes     MeetingMinutes[]
   contracts          Contract[]
   scopeItems         LotScopeItem[]
+  quoteComparisons   QuoteComparison[]
 }
 
 // Etape type d'une checklist repetable (ex, pour BB5 : Piquage reseau, Booster, Sous-station...).
@@ -539,6 +541,31 @@ model LotScopeItem {
   commentaire String?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
+}
+
+// Comparateur d'offres de prix : tableau ligne a ligne + score pondere multi-criteres + import
+// assiste par IA. Suit la meme convention que Contract/MeetingMinutes ci-dessus (sous-structures
+// modulables stockees en JSON plutot que des tables normalisees), pour rester simple a faire
+// evoluer sans migration a chaque ajustement de colonne/critere.
+model QuoteComparison {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId     String?
+  lot       Lot?     @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  title     String
+
+  // Criteres du score pondere : [{ key, label, weight, info }]
+  criteria Json @default("[]")
+  // Offres comparees : [{ id, name, subcontractorId, validityDays, deliveryWeeks, warrantyMonths,
+  //                        scores: { critereKey: note0a10 }, sourceFileName }]
+  offers Json @default("[]")
+  // Postes compares (lignes du tableau) : [{ id, label, budgetAmount,
+  //                                           prices: { offerId: { amount, note, included } } }]
+  lineItems Json @default("[]")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // Couverture d'absence (vacances) : todo calculee a la volee pour un collegue designe

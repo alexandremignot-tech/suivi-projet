@@ -33,6 +33,7 @@ const prisma = require("./db");
 const meetingMinutesRoutes = require("./routes/meetingMinutes");
 const contractRoutes = require("./routes/contracts");
 const vacationBackupRoutes = require("./routes/backups");
+const quoteComparisonRoutes = require("./routes/quoteComparisons");
 
 const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -80,6 +81,7 @@ app.use("/api/backup", backupRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/meeting-minutes", meetingMinutesRoutes);
 app.use("/api/contracts", contractRoutes);
+app.use("/api/quote-comparisons", quoteComparisonRoutes);
 // Couverture d'absence (vacances) : /api/backups (pluriel) ne collisionne pas avec /api/backup
 // (singulier, export/restauration complete de la base, ci-dessus).
 app.use("/api/backups", vacationBackupRoutes);

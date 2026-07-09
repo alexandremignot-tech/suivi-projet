@@ -17,6 +17,7 @@ const TEMPLATE_PATH = path.join(__dirname, "../../templates/contrat_soustraitanc
 // absente est simplement rendue vide a la generation.
 const FIELD_KEYS = [
   "PROJET",
+  "PROJET_DESCRIPTION",
   "CONTACT_NOM",
   "CONTACT_FONCTION",
   "CONTACT_EMAIL",
@@ -24,6 +25,9 @@ const FIELD_KEYS = [
   "KARNO_DIR_NOM",
   "KARNO_DIR_EMAIL",
   "KARNO_DIR_TEL",
+  "KARNO_CONTACT2_NOM",
+  "KARNO_CONTACT2_EMAIL",
+  "KARNO_CONTACT2_TEL",
   "KARNO_PM_NOM",
   "KARNO_PM_EMAIL",
   "KARNO_PM_TEL",
@@ -35,13 +39,12 @@ const FIELD_KEYS = [
   "ST_CONTACT1_NOM",
   "ST_CONTACT1_EMAIL",
   "ST_CONTACT1_TEL",
-  "ST_CONTACT2_NOM",
-  "ST_CONTACT2_FONCTION",
-  "ST_CONTACT2_EMAIL",
-  "ST_CONTACT2_TEL",
+  "REFERENCE_CHANTIER",
   "ADRESSE_CHANTIER",
+  "MAITRE_OUVRAGE",
   "CHECKINWORK",
   "DATE_DEBUT",
+  "DUREE_PREVISIONNELLE",
   "DATE_FIN",
   "MONTANT_FORFAIT",
   "MONTANT_GARANTIE",
@@ -50,6 +53,7 @@ const FIELD_KEYS = [
   "RESOLIA_ENG_NOM",
   "RESOLIA_ENG_EMAIL",
   "RESOLIA_ENG_TEL",
+  "LIEU_SIGNATURE",
   "DATE_SIGNATURE",
 ];
 
@@ -147,7 +151,8 @@ router.delete(
   })
 );
 
-// Construit le .docx (26 pages) a partir du template KARNO et des donnees du contrat. Partagee
+// Construit le .docx (37 pages, structure legale complete a 30 articles + annexes) a partir du
+// template KARNO et des donnees du contrat. Partagee
 // par les routes /:id/docx et /:id/pdf ci-dessous (la seconde convertit ensuite ce buffer via
 // LibreOffice, voir utils/docxToPdf.js).
 function renderContractDocxBuffer(contract) {
@@ -166,15 +171,14 @@ function renderContractDocxBuffer(contract) {
   if (raw.MONTANT_FORFAIT !== undefined) renderData.MONTANT_FORFAIT = formatMontant(raw.MONTANT_FORFAIT);
   if (raw.MONTANT_GARANTIE !== undefined) renderData.MONTANT_GARANTIE = formatMontant(raw.MONTANT_GARANTIE);
   if (raw.SEUIL_EQUIPEMENT !== undefined) renderData.SEUIL_EQUIPEMENT = formatMontant(raw.SEUIL_EQUIPEMENT);
-  renderData.KARNO_DIR_NOM_ROLE = raw.KARNO_DIR_NOM ? `${raw.KARNO_DIR_NOM}, Directeur de projets Karno` : "";
 
-  // checklist de perimetre (tableau "Lot / Inclus / Non inclus / Commentaires"), pre-remplie
-  // depuis le "contrat type" du lot (LotScopeItem) puis ajustee par contrat (voir data.SCOPE)
+  // liste a puces du perimetre (article 3.1), pre-remplie depuis le "contrat type" du lot
+  // (LotScopeItem) puis ajustee par contrat (voir data.SCOPE). Chaque poste non inclus est
+  // signale explicitement dans le texte genere ("Hors perimetre du Sous-Traitant").
   const scopeRaw = Array.isArray(raw.SCOPE) ? raw.SCOPE : [];
   renderData.scope = scopeRaw.map((s) => ({
     label: s.label || "",
-    inclus: s.inclus ? "X" : "",
-    nonInclus: s.inclus ? "" : "X",
+    inclus: Boolean(s.inclus),
     commentaire: s.commentaire || "",
   }));
 
@@ -194,7 +198,7 @@ function renderContractDocxBuffer(contract) {
   return doc.getZip().generate({ type: "nodebuffer" });
 }
 
-// Genere et telecharge le .docx (26 pages) a partir du template KARNO
+// Genere et telecharge le .docx a partir du template KARNO
 router.get(
   "/:id/docx",
   asyncHandler(async (req, res) => {

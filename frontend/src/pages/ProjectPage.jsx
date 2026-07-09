@@ -13,6 +13,7 @@ import LotsView from "../components/LotsView";
 import OverviewView from "../components/OverviewView";
 import MeetingMinutesView from "../components/MeetingMinutesView";
 import ContractsView from "../components/ContractsView";
+import QuoteComparisonView from "../components/QuoteComparisonView";
 import ProjectAssistant from "../components/ProjectAssistant";
 
 const TABS = [
@@ -26,6 +27,7 @@ const TABS = [
   { key: "chantier", label: "Suivi de chantier" },
   { key: "pv", label: "PV de chantier" },
   { key: "contrats", label: "Contrats" },
+  { key: "comparateur", label: "Comparateur d'offres" },
   { key: "points", label: "Points ouverts" },
   { key: "integrations", label: "Integrations" },
 ];
@@ -121,6 +123,7 @@ export default function ProjectPage() {
       {tab === "chantier" && <SiteReportsView project={project} onChange={loadProject} />}
       {tab === "pv" && <MeetingMinutesView project={project} onChange={loadProject} />}
       {tab === "contrats" && <ContractsView project={project} onChange={loadProject} />}
+      {tab === "comparateur" && <QuoteComparisonView project={project} onChange={loadProject} />}
       {tab === "points" && <IssuesView project={project} onChange={loadProject} />}
       {tab === "integrations" && <IntegrationsView project={project} onChange={loadProject} />}
 

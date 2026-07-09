@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import client from "../api/client";
 
-// Genere le Contrat de sous-traitance au format .docx officiel KARNO (26 pages : police
-// Montserrat, couleurs de marque, page de garde et structure ENTRE/ET conservees a l'identique
-// du modele fourni). Tous les champs variables du contrat sont regroupes ci-dessous par section.
+// Genere le Contrat de sous-traitance au format .docx officiel KARNO : reprend la forme du
+// contrat complet fourni par l'utilisateur (30 articles, sommaire, definitions legales,
+// annexes...), avec le logo/branding et couleurs KARNO conserves (page de garde, entetes/pieds
+// de page). Tous les champs variables du contrat sont regroupes ci-dessous par section.
 function emptyData() {
   return {
     PROJET: "",
+    PROJET_DESCRIPTION: "",
     CONTACT_NOM: "",
     CONTACT_FONCTION: "",
     CONTACT_EMAIL: "",
@@ -14,6 +16,9 @@ function emptyData() {
     KARNO_DIR_NOM: "",
     KARNO_DIR_EMAIL: "",
     KARNO_DIR_TEL: "",
+    KARNO_CONTACT2_NOM: "",
+    KARNO_CONTACT2_EMAIL: "",
+    KARNO_CONTACT2_TEL: "",
     KARNO_PM_NOM: "",
     KARNO_PM_EMAIL: "",
     KARNO_PM_TEL: "",
@@ -25,13 +30,12 @@ function emptyData() {
     ST_CONTACT1_NOM: "",
     ST_CONTACT1_EMAIL: "",
     ST_CONTACT1_TEL: "",
-    ST_CONTACT2_NOM: "",
-    ST_CONTACT2_FONCTION: "",
-    ST_CONTACT2_EMAIL: "",
-    ST_CONTACT2_TEL: "",
+    REFERENCE_CHANTIER: "",
     ADRESSE_CHANTIER: "",
+    MAITRE_OUVRAGE: "",
     CHECKINWORK: "",
     DATE_DEBUT: "",
+    DUREE_PREVISIONNELLE: "",
     DATE_FIN: "",
     MONTANT_FORFAIT: "",
     MONTANT_GARANTIE: "",
@@ -40,6 +44,7 @@ function emptyData() {
     RESOLIA_ENG_NOM: "",
     RESOLIA_ENG_EMAIL: "",
     RESOLIA_ENG_TEL: "",
+    LIEU_SIGNATURE: "",
     DATE_SIGNATURE: "",
   };
 }
@@ -48,7 +53,8 @@ const FIELD_GROUPS = [
   {
     title: "Reference et contact principal (page de garde)",
     fields: [
-      ["PROJET", "Reference projet (ex: K-0055 - Chaufferie Wavre)"],
+      ["PROJET", "Reference projet (ex: K-0055 Chaufferie Wavre)"],
+      ["PROJET_DESCRIPTION", "Intitule descriptif (ex: Chaufferie collective au bois)"],
       ["CONTACT_NOM", "Nom du contact"],
       ["CONTACT_FONCTION", "Fonction"],
       ["CONTACT_EMAIL", "Email"],
@@ -56,18 +62,22 @@ const FIELD_GROUPS = [
     ],
   },
   {
-    title: "KARNO - Directeur de projets",
+    title: "KARNO - Administrateur (partie ENTRE)",
+    fields: [["KARNO_DIR_NOM", "Nom de l'administrateur representant Karno"]],
+  },
+  {
+    title: "KARNO - Contact 1 (partie ENTRE)",
     fields: [
-      ["KARNO_DIR_NOM", "Nom"],
-      ["KARNO_DIR_EMAIL", "Email"],
-      ["KARNO_DIR_TEL", "GSM"],
+      ["KARNO_CONTACT2_NOM", "Nom"],
+      ["KARNO_CONTACT2_EMAIL", "Email"],
+      ["KARNO_CONTACT2_TEL", "GSM"],
     ],
   },
   {
-    title: "KARNO - Project manager Build",
+    title: "KARNO - Contact 2 / Project manager Build (partie ENTRE)",
     fields: [
       ["KARNO_PM_NOM", "Nom"],
-      ["KARNO_PM_EMAIL", "Email"],
+      ["KARNO_PM_EMAIL", "Email (non affiche dans cette section du contrat)"],
       ["KARNO_PM_TEL", "GSM"],
     ],
   },
@@ -86,22 +96,15 @@ const FIELD_GROUPS = [
     fields: [
       ["ST_CONTACT1_NOM", "Nom"],
       ["ST_CONTACT1_EMAIL", "Email"],
-      ["ST_CONTACT1_TEL", "GSM"],
-    ],
-  },
-  {
-    title: "Sous-traitant - Contact 2",
-    fields: [
-      ["ST_CONTACT2_NOM", "Nom"],
-      ["ST_CONTACT2_FONCTION", "Fonction"],
-      ["ST_CONTACT2_EMAIL", "Email"],
-      ["ST_CONTACT2_TEL", "GSM"],
+      ["ST_CONTACT1_TEL", "GSM (avec indicatif, ex: +32 471 00 00 00)"],
     ],
   },
   {
     title: "Chantier",
     fields: [
+      ["REFERENCE_CHANTIER", "Reference Karno du chantier (ex: K-0055-BB2)"],
       ["ADRESSE_CHANTIER", "Adresse du chantier"],
+      ["MAITRE_OUVRAGE", "Maitre d'Ouvrage (MOA)"],
       ["CHECKINWORK", "Numero checkin@work"],
       ["ENTREPRISE_GENERALE", "Entreprise generale du projet (eau/electricite/sanitaires)"],
     ],
@@ -109,11 +112,13 @@ const FIELD_GROUPS = [
   {
     title: "Dates et montants",
     fields: [
-      ["DATE_DEBUT", "Date de debut des travaux (ex: 1er septembre 2026)"],
+      ["DATE_DEBUT", "Date(s) de debut des travaux"],
+      ["DUREE_PREVISIONNELLE", "Duree previsionnelle des travaux"],
       ["DATE_FIN", "Date de fin des travaux"],
       ["MONTANT_FORFAIT", "Montant forfaitaire HTVA (€)", "number"],
       ["MONTANT_GARANTIE", "Retenue de garantie HTVA (€, 10% par defaut)", "number"],
       ["SEUIL_EQUIPEMENT", "Seuil de valorisation equipement HTVA (€, 5% par defaut)", "number"],
+      ["LIEU_SIGNATURE", "Lieu de signature"],
       ["DATE_SIGNATURE", "Date de signature"],
     ],
   },
