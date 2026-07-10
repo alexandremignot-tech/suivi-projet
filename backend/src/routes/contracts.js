@@ -11,11 +11,9 @@ const { convertDocxBufferToPdf } = require("../utils/docxToPdf");
 const router = express.Router();
 router.use(requireAuth);
 
-const TEMPLATE_PATH = path.join(__dirname, "../../templates/contrat_soustraitance_template.docx");
-
-// Tous les tags attendus par le template (voir contrat_soustraitance_template.docx). Toute cle
-// absente est simplement rendue vide a la generation.
-const FIELD_KEYS = [
+// Tous les tags attendus par le template complet (voir contrat_soustraitance_template.docx).
+// Toute cle absente est simplement rendue vide a la generation.
+const FIELD_KEYS_COMPLET = [
   "PROJET",
   "PROJET_DESCRIPTION",
   "CONTACT_NOM",
@@ -57,6 +55,73 @@ const FIELD_KEYS = [
   "DATE_SIGNATURE",
 ];
 
+// Champs communs aux 2 modeles "legers" (15 articles environ, pour petits marches) : memes noms
+// que le contrat complet la ou les notions se recoupent (reference chantier, parties, dates,
+// prix, signature), pour rester coherent d'un modele a l'autre. Pas de checklist de perimetre
+// modulable (SCOPE) : le texte des prestations est fixe par metier.
+const FIELD_KEYS_LEGER_BASE = [
+  "PROJET",
+  "PROJET_DESCRIPTION",
+  "CONTACT_NOM",
+  "CONTACT_FONCTION",
+  "CONTACT_EMAIL",
+  "CONTACT_TEL",
+  "KARNO_DIR_NOM",
+  "KARNO_CONTACT2_NOM",
+  "KARNO_CONTACT2_EMAIL",
+  "KARNO_CONTACT2_TEL",
+  "KARNO_PM_NOM",
+  "KARNO_PM_EMAIL",
+  "KARNO_PM_TEL",
+  "ST_NOM",
+  "ST_ADRESSE",
+  "ST_BCE",
+  "ST_SPECIALITE",
+  "ST_CEO_NOM",
+  "ST_CONTACT1_NOM",
+  "ST_CONTACT1_EMAIL",
+  "ST_CONTACT1_TEL",
+  "REFERENCE_CHANTIER",
+  "ADRESSE_CHANTIER",
+  "MAITRE_OUVRAGE",
+  "MONTANT_FORFAIT",
+  "DATE_DEBUT",
+  "DUREE_PREVISIONNELLE",
+  "DATE_FIN",
+  "LIEU_SIGNATURE",
+  "DATE_SIGNATURE",
+];
+
+// Config centrale des modeles de contrat disponibles. templateKey (colonne Contract.templateKey)
+// determine le fichier .docx utilise et la liste de champs valides pour la generation.
+const CONTRACT_TEMPLATES = {
+  COMPLET: {
+    label: "Contrat complet (30 articles)",
+    description: "Structure legale complete (definitions, RACI, RGPD, annexes...), pour les marches importants.",
+    path: path.join(__dirname, "../../templates/contrat_soustraitance_template.docx"),
+    fieldKeys: FIELD_KEYS_COMPLET,
+    hasScope: true,
+  },
+  LEGER_SOUDURE_PEHD: {
+    label: "Contrat leger — Soudure PEHD",
+    description: "15 articles, pour un petit marche de soudure PEHD (essais, controle qualite, tracabilite).",
+    path: path.join(__dirname, "../../templates/contrat_leger_soudure_pehd_template.docx"),
+    fieldKeys: [...FIELD_KEYS_LEGER_BASE, "PEHD_DIAMETRE"],
+    hasScope: false,
+  },
+  LEGER_FORAGE_DIRIGE: {
+    label: "Contrat leger — Forage dirige",
+    description: "15 articles, pour un petit marche de forage dirige sous voirie (impetrants, remise en etat).",
+    path: path.join(__dirname, "../../templates/contrat_leger_forage_dirige_template.docx"),
+    fieldKeys: [...FIELD_KEYS_LEGER_BASE, "FORAGE_NOMBRE", "FORAGE_LONGUEUR"],
+    hasScope: false,
+  },
+};
+
+function resolveTemplate(templateKey) {
+  return CONTRACT_TEMPLATES[templateKey] || CONTRACT_TEMPLATES.COMPLET;
+}
+
 async function assertProjectAccess(req, projectId) {
   return prisma.project.findFirst({ where: { id: projectId, organizationId: req.user.organizationId } });
 }
@@ -83,6 +148,21 @@ function formatMontant(value) {
   return n.toLocaleString("fr-BE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Liste des modeles de contrat disponibles (pour le selecteur "Type de contrat" du frontend)
+router.get(
+  "/templates",
+  asyncHandler(async (req, res) => {
+    const list = Object.entries(CONTRACT_TEMPLATES).map(([key, t]) => ({
+      key,
+      label: t.label,
+      description: t.description,
+      hasScope: t.hasScope,
+      fieldKeys: t.fieldKeys,
+    }));
+    res.json(list);
+  })
+);
+
 router.get(
   "/",
   asyncHandler(async (req, res) => {
@@ -103,7 +183,7 @@ router.get(
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { projectId, lotId, subcontractorId, title, data } = req.body;
+    const { projectId, lotId, subcontractorId, title, templateKey, data } = req.body;
     if (!projectId || !title) return res.status(400).json({ error: "projectId et title sont requis" });
     const project = await assertProjectAccess(req, projectId);
     if (!project) return res.status(404).json({ error: "Projet introuvable" });
@@ -114,6 +194,7 @@ router.post(
         lotId: lotId || null,
         subcontractorId: subcontractorId || null,
         title,
+        templateKey: CONTRACT_TEMPLATES[templateKey] ? templateKey : "COMPLET",
         data: data && typeof data === "object" ? data : {},
       },
     });
@@ -127,13 +208,14 @@ router.put(
     const existing = await loadWithAccess(req, res);
     if (!existing) return;
 
-    const { lotId, subcontractorId, title, data } = req.body;
+    const { lotId, subcontractorId, title, templateKey, data } = req.body;
     const updated = await prisma.contract.update({
       where: { id: req.params.id },
       data: {
         lotId: lotId !== undefined ? lotId || null : undefined,
         subcontractorId: subcontractorId !== undefined ? subcontractorId || null : undefined,
         title,
+        templateKey: templateKey !== undefined ? (CONTRACT_TEMPLATES[templateKey] ? templateKey : "COMPLET") : undefined,
         data: data !== undefined && typeof data === "object" ? data : undefined,
       },
     });
@@ -151,12 +233,14 @@ router.delete(
   })
 );
 
-// Construit le .docx (37 pages, structure legale complete a 30 articles + annexes) a partir du
-// template KARNO et des donnees du contrat. Partagee
-// par les routes /:id/docx et /:id/pdf ci-dessous (la seconde convertit ensuite ce buffer via
+// Construit le .docx a partir du template KARNO correspondant au templateKey du contrat (complet
+// a 30 articles, ou l'un des modeles legers par metier) et des donnees du contrat. Partagee par
+// les routes /:id/docx et /:id/pdf ci-dessous (la seconde convertit ensuite ce buffer via
 // LibreOffice, voir utils/docxToPdf.js).
 function renderContractDocxBuffer(contract) {
-  if (!fs.existsSync(TEMPLATE_PATH)) {
+  const template = resolveTemplate(contract.templateKey);
+
+  if (!fs.existsSync(template.path)) {
     const err = new Error("Modele de contrat introuvable sur le serveur");
     err.statusCode = 500;
     throw err;
@@ -164,7 +248,7 @@ function renderContractDocxBuffer(contract) {
 
   const raw = contract.data && typeof contract.data === "object" ? contract.data : {};
   const renderData = {};
-  for (const key of FIELD_KEYS) {
+  for (const key of template.fieldKeys) {
     renderData[key] = raw[key] !== undefined && raw[key] !== null ? String(raw[key]) : "";
   }
   // champs derives / formates
@@ -172,9 +256,9 @@ function renderContractDocxBuffer(contract) {
   if (raw.MONTANT_GARANTIE !== undefined) renderData.MONTANT_GARANTIE = formatMontant(raw.MONTANT_GARANTIE);
   if (raw.SEUIL_EQUIPEMENT !== undefined) renderData.SEUIL_EQUIPEMENT = formatMontant(raw.SEUIL_EQUIPEMENT);
 
-  // liste a puces du perimetre (article 3.1), pre-remplie depuis le "contrat type" du lot
-  // (LotScopeItem) puis ajustee par contrat (voir data.SCOPE). Chaque poste non inclus est
-  // signale explicitement dans le texte genere ("Hors perimetre du Sous-Traitant").
+  // liste a puces du perimetre (article 3.1 du contrat complet uniquement), pre-remplie depuis le
+  // "contrat type" du lot (LotScopeItem) puis ajustee par contrat (voir data.SCOPE). Ignoree par
+  // les modeles legers (pas de tag {#scope} dans leur template), docxtemplater l'ignore alors sans erreur.
   const scopeRaw = Array.isArray(raw.SCOPE) ? raw.SCOPE : [];
   renderData.scope = scopeRaw.map((s) => ({
     label: s.label || "",
@@ -182,7 +266,7 @@ function renderContractDocxBuffer(contract) {
     commentaire: s.commentaire || "",
   }));
 
-  const content = fs.readFileSync(TEMPLATE_PATH, "binary");
+  const content = fs.readFileSync(template.path, "binary");
   const zip = new PizZip(content);
   const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
 

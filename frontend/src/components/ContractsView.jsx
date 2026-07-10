@@ -46,6 +46,10 @@ function emptyData() {
     RESOLIA_ENG_TEL: "",
     LIEU_SIGNATURE: "",
     DATE_SIGNATURE: "",
+    // Champs specifiques aux contrats legers (ignores par le contrat complet)
+    PEHD_DIAMETRE: "",
+    FORAGE_NOMBRE: "",
+    FORAGE_LONGUEUR: "",
   };
 }
 
@@ -130,6 +134,14 @@ const FIELD_GROUPS = [
       ["RESOLIA_ENG_TEL", "GSM"],
     ],
   },
+  {
+    title: "Specifique au contrat leger",
+    fields: [
+      ["PEHD_DIAMETRE", "Diametre PEHD (ex: OD200)"],
+      ["FORAGE_NOMBRE", "Nombre de forages"],
+      ["FORAGE_LONGUEUR", "Longueur par forage (ex: 20 m)"],
+    ],
+  },
 ];
 
 export default function ContractsView({ project }) {
@@ -144,6 +156,11 @@ export default function ContractsView({ project }) {
   const [lotId, setLotId] = useState("");
   const [subcontractorId, setSubcontractorId] = useState("");
   const [data, setData] = useState(emptyData());
+
+  // Type de contrat (modele docx) : complet (30 articles) ou leger par metier (15 articles,
+  // petits marches). Determine le fichier .docx genere et les champs pertinents ci-dessous.
+  const [contractTemplates, setContractTemplates] = useState([]);
+  const [contractTemplateKey, setContractTemplateKey] = useState("COMPLET");
   const [scope, setScope] = useState([]); // checklist du contrat en cours (editable)
   const [lotTemplate, setLotTemplate] = useState([]); // "contrat type" du lot selectionne (LotScopeItem)
   const [showTemplateManager, setShowTemplateManager] = useState(false);
@@ -172,8 +189,15 @@ export default function ContractsView({ project }) {
       setScopeTemplates(templates);
       if (templates.length > 0) setSelectedTemplateKey(templates[0].key);
     });
+    client.get("/contracts/templates").then(({ data: templates }) => setContractTemplates(templates));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
+
+  const selectedContractTemplate = contractTemplates.find((t) => t.key === contractTemplateKey);
+  const visibleFieldGroups = FIELD_GROUPS.map((g) => ({
+    ...g,
+    fields: g.fields.filter(([key]) => !selectedContractTemplate || selectedContractTemplate.fieldKeys.includes(key)),
+  })).filter((g) => g.fields.length > 0);
 
   async function loadLotTemplate(id) {
     if (!id) {
@@ -286,6 +310,7 @@ export default function ContractsView({ project }) {
         lotId: lotId || null,
         subcontractorId: subcontractorId || null,
         title,
+        templateKey: contractTemplateKey,
         data: { ...data, SCOPE: scope },
       });
       setTitle("");
@@ -294,6 +319,7 @@ export default function ContractsView({ project }) {
       setData(emptyData());
       setScope([]);
       setLotTemplate([]);
+      setContractTemplateKey("COMPLET");
       setShowForm(false);
       await load();
     } finally {
@@ -392,7 +418,26 @@ export default function ContractsView({ project }) {
             </select>
           </div>
 
-          {lotId && (
+          <div>
+            <p className="text-xs font-medium text-slate-600 mb-1">Type de contrat</p>
+            <div className="grid grid-cols-3 gap-2">
+              {contractTemplates.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setContractTemplateKey(t.key)}
+                  className={`text-left border rounded-md px-3 py-2 text-xs ${
+                    contractTemplateKey === t.key ? "border-brand-600 bg-brand-50 text-brand-700" : "border-slate-300 text-slate-600"
+                  }`}
+                >
+                  <div className="font-medium">{t.label}</div>
+                  <div className="text-slate-400 mt-0.5">{t.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {lotId && selectedContractTemplate?.hasScope !== false && (
             <div className="border border-slate-200 rounded-md p-3 bg-slate-50">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-medium text-slate-600">
@@ -534,7 +579,7 @@ export default function ContractsView({ project }) {
             </div>
           )}
 
-          {FIELD_GROUPS.map((group) => (
+          {visibleFieldGroups.map((group) => (
             <div key={group.title}>
               <p className="text-xs font-medium text-slate-600 mb-2">{group.title}</p>
               <div className="grid grid-cols-3 gap-2">
@@ -575,6 +620,11 @@ export default function ContractsView({ project }) {
                   <span className="font-medium text-sm">{c.title}</span>
                   {c.lot && <span className="text-xs text-slate-400 ml-2">· {c.lot.code}</span>}
                   {c.subcontractor && <span className="text-xs text-slate-400 ml-2">· {c.subcontractor.name}</span>}
+                  {c.templateKey && c.templateKey !== "COMPLET" && (
+                    <span className="text-xs bg-slate-100 text-slate-500 rounded-full px-2 py-0.5 ml-2">
+                      {contractTemplates.find((t) => t.key === c.templateKey)?.label || c.templateKey}
+                    </span>
+                  )}
                   <span className="text-xs text-slate-400 ml-2">{new Date(c.createdAt).toLocaleDateString("fr-FR")}</span>
                 </div>
                 <span className="text-xs text-brand-600">{expanded ? "Reduire" : "Voir le detail"}</span>
