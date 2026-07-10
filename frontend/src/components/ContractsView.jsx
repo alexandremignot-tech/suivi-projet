@@ -46,10 +46,6 @@ function emptyData() {
     RESOLIA_ENG_TEL: "",
     LIEU_SIGNATURE: "",
     DATE_SIGNATURE: "",
-    // Champs specifiques aux contrats legers (ignores par le contrat complet)
-    PEHD_DIAMETRE: "",
-    FORAGE_NOMBRE: "",
-    FORAGE_LONGUEUR: "",
   };
 }
 
@@ -132,14 +128,6 @@ const FIELD_GROUPS = [
       ["RESOLIA_ENG_NOM", "Nom de l'ingenieur"],
       ["RESOLIA_ENG_EMAIL", "Email"],
       ["RESOLIA_ENG_TEL", "GSM"],
-    ],
-  },
-  {
-    title: "Specifique au contrat leger",
-    fields: [
-      ["PEHD_DIAMETRE", "Diametre PEHD (ex: OD200)"],
-      ["FORAGE_NOMBRE", "Nombre de forages"],
-      ["FORAGE_LONGUEUR", "Longueur par forage (ex: 20 m)"],
     ],
   },
 ];
@@ -373,8 +361,8 @@ export default function ContractsView({ project }) {
         <div>
           <h3 className="font-medium">Contrats de sous-traitance</h3>
           <p className="text-xs text-slate-500">
-            Genere un document .docx au format officiel KARNO (26 pages, police Montserrat, couleurs et
-            page de garde du modele conserves).
+            Genere un document .docx au format officiel KARNO (logo, couleurs et police conserves) — au
+            choix, contrat complet (30 articles) ou contrat leger (15 articles, petits marches).
           </p>
         </div>
         <button onClick={() => setShowForm((v) => !v)} className="text-sm text-brand-600 font-medium">

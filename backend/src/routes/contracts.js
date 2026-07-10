@@ -55,11 +55,12 @@ const FIELD_KEYS_COMPLET = [
   "DATE_SIGNATURE",
 ];
 
-// Champs communs aux 2 modeles "legers" (15 articles environ, pour petits marches) : memes noms
-// que le contrat complet la ou les notions se recoupent (reference chantier, parties, dates,
-// prix, signature), pour rester coherent d'un modele a l'autre. Pas de checklist de perimetre
-// modulable (SCOPE) : le texte des prestations est fixe par metier.
-const FIELD_KEYS_LEGER_BASE = [
+// Champs du modele "leger" (15 articles, pour petits marches, tous metiers confondus) : memes
+// noms que le contrat complet la ou les notions se recoupent (reference chantier, parties, dates,
+// prix, signature), pour rester coherent d'un modele a l'autre. La liste de prestations utilise
+// la meme checklist modulable {#scope} que le contrat complet (voir SCOPE dans data), ce qui
+// permet de servir n'importe quel petit marche (soudure, forage, ou autre) sans champ dedie.
+const FIELD_KEYS_LEGER = [
   "PROJET",
   "PROJET_DESCRIPTION",
   "CONTACT_NOM",
@@ -102,19 +103,12 @@ const CONTRACT_TEMPLATES = {
     fieldKeys: FIELD_KEYS_COMPLET,
     hasScope: true,
   },
-  LEGER_SOUDURE_PEHD: {
-    label: "Contrat leger — Soudure PEHD",
-    description: "15 articles, pour un petit marche de soudure PEHD (essais, controle qualite, tracabilite).",
-    path: path.join(__dirname, "../../templates/contrat_leger_soudure_pehd_template.docx"),
-    fieldKeys: [...FIELD_KEYS_LEGER_BASE, "PEHD_DIAMETRE"],
-    hasScope: false,
-  },
-  LEGER_FORAGE_DIRIGE: {
-    label: "Contrat leger — Forage dirige",
-    description: "15 articles, pour un petit marche de forage dirige sous voirie (impetrants, remise en etat).",
-    path: path.join(__dirname, "../../templates/contrat_leger_forage_dirige_template.docx"),
-    fieldKeys: [...FIELD_KEYS_LEGER_BASE, "FORAGE_NOMBRE", "FORAGE_LONGUEUR"],
-    hasScope: false,
+  LEGER: {
+    label: "Contrat leger (15 articles)",
+    description: "Structure courte (chantier, prestations, obligations, paiement, garantie, assurances...), pour les petits marches, tous metiers confondus.",
+    path: path.join(__dirname, "../../templates/contrat_leger_template.docx"),
+    fieldKeys: FIELD_KEYS_LEGER,
+    hasScope: true,
   },
 };
 
