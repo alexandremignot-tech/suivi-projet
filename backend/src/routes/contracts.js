@@ -14,14 +14,27 @@ const { extractContractInputData } = require("../utils/contractExtraction");
 const router = express.Router();
 router.use(requireAuth);
 
-// Meme repertoire d'upload que routes/uploads.js (disque local, sert via express.static("/uploads")).
+// Meme repertoire d'upload que routes/uploads.js. Stockage en memoire : le fichier est ensuite
+// ecrit sur disque ET persiste en base (StoredFile), pour survivre aux redeploiements Render (voir
+// le meme commentaire detaille dans routes/uploads.js).
 const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads");
-const sourceFileStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname)}`),
-});
 // 20 Mo max, coherent avec la limite du comparateur d'offres (devis/BC/mail scannes)
-const uploadSourceFile = multer({ storage: sourceFileStorage, limits: { fileSize: 20 * 1024 * 1024 } });
+const uploadSourceFile = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// Persiste un fichier uploade (disque best-effort + base durable) et renvoie son nom de fichier
+// (utilise pour construire fileUrl = `/uploads/${name}`). Partage la meme logique que routes/uploads.js.
+async function persistUploadedFile(file) {
+  const filename = `${uuid()}${path.extname(file.originalname)}`;
+  try {
+    fs.writeFileSync(path.join(UPLOAD_DIR, filename), file.buffer);
+  } catch (diskErr) {
+    console.error("Ecriture disque du fichier uploade impossible (non bloquant) :", diskErr.message);
+  }
+  await prisma.storedFile.create({
+    data: { name: filename, originalName: file.originalname, mime: file.mimetype, size: file.size, data: file.buffer },
+  });
+  return filename;
+}
 
 // Tous les tags attendus par le template complet (voir contrat_soustraitance_template.docx).
 // Toute cle absente est simplement rendue vide a la generation.
@@ -146,6 +159,33 @@ async function loadWithAccess(req, res) {
   return contract;
 }
 
+// Verifie qu'un lot appartient bien au projet donne, pour ne jamais laisser un contrat referencer
+// un lot d'un autre projet/organisation (fuite croisee de code/nom de lot via l'include des routes
+// de lecture). Renvoie une erreur {statusCode:404} exploitable par les routes POST/PUT.
+async function assertLotBelongsToProject(projectId, lotId) {
+  if (!lotId) return;
+  const lot = await prisma.lot.findFirst({ where: { id: lotId, projectId } });
+  if (!lot) {
+    const err = new Error("Lot introuvable sur ce projet");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
+// Verifie qu'un sous-traitant appartient bien a l'organisation de l'utilisateur, pour ne jamais
+// laisser un contrat referencer un sous-traitant d'une autre organisation.
+async function assertSubcontractorBelongsToOrg(req, subcontractorId) {
+  if (!subcontractorId) return;
+  const sub = await prisma.subcontractor.findFirst({
+    where: { id: subcontractorId, organizationId: req.user.organizationId },
+  });
+  if (!sub) {
+    const err = new Error("Sous-traitant introuvable");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
 // formate un montant en style "450.000,00" (convention belge/francaise)
 function formatMontant(value) {
   if (value === undefined || value === null || value === "") return "";
@@ -218,6 +258,8 @@ router.post(
 
     try {
       await assertBudgetItemLinkable(projectId, budgetItemId, null);
+      await assertLotBelongsToProject(projectId, lotId);
+      await assertSubcontractorBelongsToOrg(req, subcontractorId);
     } catch (err) {
       return res.status(err.statusCode || 400).json({ error: err.message });
     }
@@ -247,12 +289,18 @@ router.put(
 
     const { lotId, subcontractorId, title, templateKey, data, budgetItemId, sourceFileUrl, sourceFileName } = req.body;
 
-    if (budgetItemId !== undefined) {
-      try {
+    try {
+      if (budgetItemId !== undefined) {
         await assertBudgetItemLinkable(existing.projectId, budgetItemId, existing.id);
-      } catch (err) {
-        return res.status(err.statusCode || 400).json({ error: err.message });
       }
+      if (lotId !== undefined) {
+        await assertLotBelongsToProject(existing.projectId, lotId);
+      }
+      if (subcontractorId !== undefined) {
+        await assertSubcontractorBelongsToOrg(req, subcontractorId);
+      }
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
     }
 
     const updated = await prisma.contract.update({
@@ -273,10 +321,10 @@ router.put(
 );
 
 // Import assiste par IA : upload d'un devis / bon de commande / mail fournisseur, extrait les
-// champs du contrat (identite du sous-traitant, montant, chantier, perimetre propose) via Claude.
-// Le fichier est conserve sur disque (meme mecanisme que /api/uploads) et son URL est renvoyee
+// champs du contrat (identite du sous-traitant, montant, chantier, perimetre propose) via Gemini.
+// Le fichier est conserve (disque + base durable, voir persistUploadedFile) et son URL est renvoyee
 // avec le resultat, pour que le frontend puisse l'inclure dans la creation du contrat une fois
-// les champs relus/corriges par l'utilisateur. Aucune ecriture en base ici (pas de Contract cree).
+// les champs relus/corriges par l'utilisateur. Aucune ecriture de Contract ici.
 router.post(
   "/extract",
   uploadSourceFile.single("file"),
@@ -286,7 +334,7 @@ router.post(
     let extracted;
     try {
       extracted = await extractContractInputData({
-        buffer: fs.readFileSync(req.file.path),
+        buffer: req.file.buffer,
         mimetype: req.file.mimetype,
         filename: req.file.originalname,
       });
@@ -294,9 +342,10 @@ router.post(
       return res.status(err.statusCode || 500).json({ error: err.message });
     }
 
+    const filename = await persistUploadedFile(req.file);
     res.status(200).json({
       ...extracted,
-      sourceFileUrl: `/uploads/${req.file.filename}`,
+      sourceFileUrl: `/uploads/${filename}`,
       sourceFileName: req.file.originalname,
     });
   })

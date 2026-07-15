@@ -10,22 +10,10 @@ const PRIORITY_COLORS = {
   URGENT: "bg-red-100 text-red-700",
 };
 
-const DONE_COLUMN_RE = /termin|fini|done|recept|reçu|clôtur|clotur/i;
-
 export default function KanbanBoard({ project, members, onChange }) {
   const [modalState, setModalState] = useState(null); // { columnId } or { task }
   const [newColumnName, setNewColumnName] = useState("");
   const [addingColumn, setAddingColumn] = useState(false);
-  const [quickAddColumn, setQuickAddColumn] = useState(null); // columnId de la colonne en ajout rapide
-  const [quickTitle, setQuickTitle] = useState("");
-
-  async function handleQuickAdd(e, columnId) {
-    e.preventDefault();
-    if (!quickTitle.trim()) return;
-    await client.post("/tasks", { projectId: project.id, columnId, title: quickTitle.trim() });
-    setQuickTitle("");
-    onChange(); // reste en mode ajout rapide pour enchainer les taches
-  }
 
   const tasksByColumn = {};
   for (const col of project.columns) {
@@ -39,41 +27,43 @@ export default function KanbanBoard({ project, members, onChange }) {
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
-    await client.patch(`/tasks/${draggableId}/move`, {
-      columnId: destination.droppableId,
-      order: destination.index,
-    });
-    onChange();
+    try {
+      await client.patch(`/tasks/${draggableId}/move`, {
+        columnId: destination.droppableId,
+        order: destination.index,
+      });
+      onChange();
+    } catch (err) {
+      alert(err.response?.data?.error || "Erreur lors du deplacement de la tache. La carte va revenir a sa position.");
+      onChange();
+    }
   }
 
   async function handleAddColumn(e) {
     e.preventDefault();
     if (!newColumnName.trim()) return;
-    await client.post("/columns", { projectId: project.id, name: newColumnName });
-    setNewColumnName("");
-    setAddingColumn(false);
-    onChange();
+    try {
+      await client.post("/columns", { projectId: project.id, name: newColumnName });
+      setNewColumnName("");
+      setAddingColumn(false);
+      onChange();
+    } catch (err) {
+      alert(err.response?.data?.error || "Erreur lors de la creation de la colonne.");
+    }
   }
 
   async function handleDeleteColumn(columnId) {
     if (!confirm("Supprimer cette colonne et ses taches ?")) return;
-    await client.delete(`/columns/${columnId}`);
-    onChange();
+    try {
+      await client.delete(`/columns/${columnId}`);
+      onChange();
+    } catch (err) {
+      alert(err.response?.data?.error || "Erreur lors de la suppression de la colonne.");
+    }
   }
 
   const memberById = Object.fromEntries(members.map((m) => [m.id, m]));
   const lotById = Object.fromEntries((project.lots || []).map((l) => [l.id, l]));
-  const taskById = Object.fromEntries(project.tasks.map((t) => [t.id, t]));
-  const columnById = Object.fromEntries(project.columns.map((c) => [c.id, c]));
-  const isTaskDone = (t) => {
-    const col = columnById[t.columnId];
-    return col ? DONE_COLUMN_RE.test(col.name) : false;
-  };
-  // Dependances non terminees d'une tache -> la tache est "bloquee"
-  const blockingDeps = (t) =>
-    (t.dependsOnIds || [])
-      .map((id) => taskById[id])
-      .filter((dep) => dep && !isTaskDone(dep));
 
   return (
     <div>
@@ -115,16 +105,11 @@ export default function KanbanBoard({ project, members, onChange }) {
                                 {task.priority}
                               </span>
                             </div>
-                            {(task.startDate || task.dueDate) && (() => {
-                              const fmt = (d) => (d ? new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "?");
-                              const late = task.dueDate && new Date(task.dueDate) < new Date() && !DONE_COLUMN_RE.test(col.name);
-                              return (
-                                <p className={`text-xs mt-1 ${late ? "text-red-600 font-medium" : "text-slate-400"}`}>
-                                  {fmt(task.startDate)} → {fmt(task.dueDate)}
-                                  {late ? " · en retard" : ""}
-                                </p>
-                              );
-                            })()}
+                            {task.dueDate && (
+                              <p className="text-xs text-slate-400 mt-1">
+                                Echeance : {new Date(task.dueDate).toLocaleDateString("fr-FR")}
+                              </p>
+                            )}
                             {task.assigneeId && memberById[task.assigneeId] && (
                               <p className="text-xs text-slate-500 mt-1">{memberById[task.assigneeId].name}</p>
                             )}
@@ -133,27 +118,6 @@ export default function KanbanBoard({ project, members, onChange }) {
                                 {lotById[task.lotId].code}
                               </span>
                             )}
-                            {(task.dependsOnIds || []).length > 0 && (() => {
-                              const blocking = blockingDeps(task);
-                              const blocked = blocking.length > 0 && !DONE_COLUMN_RE.test(col.name);
-                              return (
-                                <p
-                                  className={`text-[10px] mt-1 ${blocked ? "text-red-600 font-medium" : "text-slate-400"}`}
-                                  title={
-                                    blocked
-                                      ? `En attente de : ${blocking.map((d) => d.title).join(", ")}`
-                                      : "Toutes les dependances sont terminees"
-                                  }
-                                >
-                                  {blocked
-                                    ? `⛓ bloquee par : ${blocking
-                                        .map((d) => d.title)
-                                        .join(", ")
-                                        .slice(0, 60)}${blocking.map((d) => d.title).join(", ").length > 60 ? "..." : ""}`
-                                    : `⛓ ${task.dependsOnIds.length} dependance(s) OK`}
-                                </p>
-                              );
-                            })()}
                           </div>
                         )}
                       </Draggable>
@@ -163,48 +127,12 @@ export default function KanbanBoard({ project, members, onChange }) {
                 )}
               </Droppable>
 
-              {quickAddColumn === col.id ? (
-                <form onSubmit={(e) => handleQuickAdd(e, col.id)} className="mt-3">
-                  <input
-                    autoFocus
-                    value={quickTitle}
-                    onChange={(e) => setQuickTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setQuickAddColumn(null);
-                        setQuickTitle("");
-                      }
-                    }}
-                    placeholder="Titre + Entree"
-                    className="w-full border border-brand-300 rounded-md px-2 py-1.5 text-sm"
-                  />
-                  <div className="flex justify-between mt-1 text-xs">
-                    <button type="button" onClick={() => setModalState({ columnId: col.id })} className="text-slate-400 hover:text-brand-600">
-                      + détails (dates, lot...)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setQuickAddColumn(null);
-                        setQuickTitle("");
-                      }}
-                      className="text-slate-400 hover:text-slate-600"
-                    >
-                      fermer
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <button
-                  onClick={() => {
-                    setQuickAddColumn(col.id);
-                    setQuickTitle("");
-                  }}
-                  className="mt-3 w-full text-sm text-slate-500 hover:text-brand-600 text-left"
-                >
-                  + Ajouter une tache
-                </button>
-              )}
+              <button
+                onClick={() => setModalState({ columnId: col.id })}
+                className="mt-3 w-full text-sm text-slate-500 hover:text-brand-600 text-left"
+              >
+                + Ajouter une tache
+              </button>
             </div>
           ))}
 

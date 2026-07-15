@@ -120,6 +120,8 @@ model User {
   // Couverture d'absence (vacances) : backups ou je suis le titulaire / le collegue de couverture
   backupsAsOwner    Backup[] @relation("BackupOwner")
   backupsAsDelegate Backup[] @relation("BackupDelegate")
+
+  @@index([organizationId])
 }
 
 // Table de jointure pour les membres d'un projet (au sein d'une organisation)
@@ -132,6 +134,7 @@ model ProjectMember {
   addedAt   DateTime @default(now())
 
   @@unique([projectId, userId])
+  @@index([userId])
 }
 
 model Project {
@@ -165,6 +168,8 @@ model Project {
   meetingMinutes     MeetingMinutes[]
   contracts          Contract[]
   quoteComparisons   QuoteComparison[]
+
+  @@index([organizationId])
 }
 
 // Un lot (ex: "BB1 - Forage geothermique") : decoupage reel d'un projet en sous-contrats,
@@ -196,6 +201,9 @@ model Lot {
   contracts          Contract[]
   scopeItems         LotScopeItem[]
   quoteComparisons   QuoteComparison[]
+
+  @@index([projectId])
+  @@index([subcontractorId])
 }
 
 // Etape type d'une checklist repetable (ex, pour BB5 : Piquage reseau, Booster, Sous-station...).
@@ -212,6 +220,9 @@ model UnitStepTemplate {
   createdAt              DateTime       @default(now())
 
   steps UnitStep[]
+
+  @@index([lotId])
+  @@index([defaultSubcontractorId])
 }
 
 // Une unite installee de maniere repetable au sein d'un lot (ex: une maison raccordee, "Lot 53")
@@ -227,6 +238,8 @@ model Unit {
   createdAt DateTime @default(now())
 
   steps UnitStep[]
+
+  @@index([lotId])
 }
 
 // Avancement d'une unite sur une etape type precise (une case de la grille maisons x etapes)
@@ -244,6 +257,8 @@ model UnitStep {
   updatedAt       DateTime         @updatedAt
 
   @@unique([unitId, templateId])
+  @@index([templateId])
+  @@index([subcontractorId])
 }
 
 // Etat d'avancement mensuel d'un sous-traitant sur un lot, qui declenche la facturation
@@ -264,6 +279,9 @@ model ProgressStatement {
   date            DateTime                 @default(now())
   notes           String?
   createdAt       DateTime                 @default(now())
+
+  @@index([lotId])
+  @@index([subcontractorId])
 }
 
 // Repertoire des sous-traitants de l'organisation (utilisable sur tous les projets)
@@ -288,6 +306,8 @@ model Subcontractor {
   unitStepTemplates  UnitStepTemplate[]
   unitSteps          UnitStep[]
   contracts          Contract[]
+
+  @@index([organizationId])
 }
 
 // Document attendu ou recu pour un projet (dossier As-built, certificats, plans, etc.)
@@ -309,6 +329,10 @@ model Document {
   receivedAt      DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+
+  @@index([projectId])
+  @@index([lotId])
+  @@index([subcontractorId])
 }
 
 // Equipement installe sur le projet, avec sa fiche technique et son intervalle de maintenance.
@@ -335,6 +359,9 @@ model Equipment {
   lastMaintenanceDate    DateTime?
   notes                  String?
   createdAt              DateTime  @default(now())
+
+  @@index([projectId])
+  @@index([lotId])
 }
 
 // Colonnes personnalisables du tableau Kanban (ex: A faire, En cours, Termine)
@@ -345,6 +372,8 @@ model Column {
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   tasks     Task[]
+
+  @@index([projectId])
 }
 
 model Task {
@@ -373,6 +402,12 @@ model Task {
   updatedAt      DateTime  @updatedAt
 
   dependsOnIds String[] @default([]) // ids des taches dont celle-ci depend (pour le planning)
+
+  @@index([projectId])
+  @@index([lotId])
+  @@index([columnId])
+  @@index([assigneeId])
+  @@index([createdById])
 }
 
 // Jalons pour la vue planning
@@ -383,6 +418,8 @@ model Milestone {
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   done      Boolean  @default(false)
+
+  @@index([projectId])
 }
 
 // Lignes budgetaires (depenses / recettes) d'un projet
@@ -413,6 +450,11 @@ model BudgetItem {
 
   // Contrat genere/lie a partir de cet achat (relation inverse, FK portee par Contract.budgetItemId)
   contract Contract?
+
+  @@index([projectId])
+  @@index([lotId])
+  @@index([subcontractorId])
+  @@index([relatedEntryId])
 }
 
 // Rapport de suivi de chantier : notes (texte ou dictees), points critiques, photos, resume genere
@@ -433,6 +475,10 @@ model SiteReport {
   createdAt      DateTime       @default(now())
 
   photos ReportPhoto[]
+
+  @@index([projectId])
+  @@index([lotId])
+  @@index([authorId])
 }
 
 // Photo rattachee a un rapport de chantier
@@ -443,6 +489,8 @@ model ReportPhoto {
   url      String
   fileName String?
   caption  String?
+
+  @@index([reportId])
 }
 
 // Fichier stocke en base (persiste aux redeploiements, inclus dans les sauvegardes)
@@ -482,6 +530,9 @@ model Issue {
   closedAt    DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @default(now()) @updatedAt
+
+  @@index([projectId])
+  @@index([lotId])
 }
 
 // Journal des modifications (audit) : qui a fait quoi, quand. Sans FK pour survivre aux suppressions.
@@ -518,6 +569,9 @@ model MeetingMinutes {
   attendees       Json // [{ company, name, role, email, tel, presence }]
   observations    Json // [{ ref, title, body, resp, pourLe }]
   createdAt       DateTime @default(now())
+
+  @@index([projectId])
+  @@index([lotId])
 }
 
 // Contrat de sous-traitance genere au format .docx officiel KARNO (26 pages, vrai template)
@@ -546,6 +600,10 @@ model Contract {
   // comme piece jointe de reference (meme mecanisme que Document/BudgetItem.fileUrl+fileName).
   sourceFileUrl  String?
   sourceFileName String?
+
+  @@index([projectId])
+  @@index([lotId])
+  @@index([subcontractorId])
 }
 
 // Poste type de la checklist de perimetre contractuel d'un lot (le "contrat type" par BB),
@@ -558,6 +616,8 @@ model LotScopeItem {
   commentaire String?
   order       Int      @default(0)
   createdAt   DateTime @default(now())
+
+  @@index([lotId])
 }
 
 // Comparateur d'offres de prix : tableau ligne a ligne + score pondere multi-criteres + import
@@ -583,6 +643,9 @@ model QuoteComparison {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([lotId])
 }
 
 // Couverture d'absence (vacances) : todo calculee a la volee pour un collegue designe
@@ -598,4 +661,8 @@ model Backup {
   endDate        DateTime
   note           String?
   createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([delegateId])
 }

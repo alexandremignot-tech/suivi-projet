@@ -33,6 +33,19 @@ async function assertProjectAccess(req, projectId) {
   return prisma.project.findFirst({ where: { id: projectId, organizationId: req.user.organizationId } });
 }
 
+// Empeche qu'un lot reference un sous-traitant d'une autre organisation.
+async function assertSubcontractorBelongsToOrg(req, subcontractorId) {
+  if (!subcontractorId) return;
+  const sub = await prisma.subcontractor.findFirst({
+    where: { id: subcontractorId, organizationId: req.user.organizationId },
+  });
+  if (!sub) {
+    const err = new Error("Sous-traitant introuvable");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
 router.post(
   "/",
   asyncHandler(async (req, res) => {
@@ -41,6 +54,12 @@ router.post(
 
     const project = await assertProjectAccess(req, projectId);
     if (!project) return res.status(404).json({ error: "Projet introuvable" });
+
+    try {
+      await assertSubcontractorBelongsToOrg(req, subcontractorId);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
 
     const count = await prisma.lot.count({ where: { projectId } });
     const lot = await prisma.lot.create({
@@ -79,6 +98,11 @@ router.put(
     if (!existing) return;
 
     const { code, name, phase, subcontractorId, contractAmount, notes, order } = req.body;
+    try {
+      if (subcontractorId !== undefined) await assertSubcontractorBelongsToOrg(req, subcontractorId);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
     const updated = await prisma.lot.update({
       where: { id: req.params.id },
       data: {

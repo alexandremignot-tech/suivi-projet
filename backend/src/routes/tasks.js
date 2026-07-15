@@ -10,6 +10,17 @@ async function assertProjectAccess(req, projectId) {
   return prisma.project.findFirst({ where: { id: projectId, organizationId: req.user.organizationId } });
 }
 
+// Empeche qu'une tache reference un lot d'un autre projet (fuite croisee de code/nom de lot).
+async function assertLotBelongsToProject(projectId, lotId) {
+  if (!lotId) return;
+  const lot = await prisma.lot.findFirst({ where: { id: lotId, projectId } });
+  if (!lot) {
+    const err = new Error("Lot introuvable sur ce projet");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
 router.post(
   "/",
   asyncHandler(async (req, res) => {
@@ -34,6 +45,12 @@ router.post(
 
     const project = await assertProjectAccess(req, projectId);
     if (!project) return res.status(404).json({ error: "Projet introuvable" });
+
+    try {
+      await assertLotBelongsToProject(projectId, lotId);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
 
     const count = await prisma.task.count({ where: { columnId } });
 
@@ -97,6 +114,12 @@ router.put(
       dependsOnIds,
     } = req.body;
 
+    try {
+      if (lotId !== undefined) await assertLotBelongsToProject(existing.projectId, lotId);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
+
     const task = await prisma.task.update({
       where: { id: req.params.id },
       data: {
@@ -118,47 +141,6 @@ router.put(
     });
 
     res.json(task);
-  })
-);
-
-// Decale toutes les taches qui dependent de celle-ci (directement ou en cascade)
-// de N jours, en UNE transaction atomique. Utilise apres un deplacement dans le planning.
-router.patch(
-  "/:id/shift-dependents",
-  asyncHandler(async (req, res) => {
-    const existing = await loadTaskWithAccess(req, res);
-    if (!existing) return;
-    const days = Number(req.body.days);
-    if (!days) return res.status(400).json({ error: "days (entier non nul) est requis" });
-
-    const all = await prisma.task.findMany({ where: { projectId: existing.projectId } });
-    const seen = new Set([existing.id]);
-    const queue = [existing.id];
-    const targets = [];
-    while (queue.length) {
-      const cur = queue.shift();
-      for (const t of all) {
-        if ((t.dependsOnIds || []).includes(cur) && !seen.has(t.id)) {
-          seen.add(t.id);
-          queue.push(t.id);
-          if (t.startDate || t.dueDate) targets.push(t);
-        }
-      }
-    }
-
-    const shift = (d) => (d ? new Date(new Date(d).getTime() + days * 24 * 60 * 60 * 1000) : null);
-    await prisma.$transaction(
-      targets.map((t) =>
-        prisma.task.update({
-          where: { id: t.id },
-          data: {
-            startDate: t.startDate ? shift(t.startDate) : undefined,
-            dueDate: t.dueDate ? shift(t.dueDate) : undefined,
-          },
-        })
-      )
-    );
-    res.json({ shifted: targets.length, tasks: targets.map((t) => ({ id: t.id, title: t.title })) });
   })
 );
 

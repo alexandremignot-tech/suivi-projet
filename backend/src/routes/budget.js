@@ -10,6 +10,29 @@ async function assertProjectAccess(req, projectId) {
   return prisma.project.findFirst({ where: { id: projectId, organizationId: req.user.organizationId } });
 }
 
+// Empeche qu'une ligne budgetaire reference un lot ou un sous-traitant d'un autre projet/
+// organisation (fuite croisee via les include de GET /). Leve une erreur {statusCode:404}.
+async function assertLotBelongsToProject(projectId, lotId) {
+  if (!lotId) return;
+  const lot = await prisma.lot.findFirst({ where: { id: lotId, projectId } });
+  if (!lot) {
+    const err = new Error("Lot introuvable sur ce projet");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+async function assertSubcontractorBelongsToOrg(req, subcontractorId) {
+  if (!subcontractorId) return;
+  const sub = await prisma.subcontractor.findFirst({
+    where: { id: subcontractorId, organizationId: req.user.organizationId },
+  });
+  if (!sub) {
+    const err = new Error("Sous-traitant introuvable");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
 // Registre financier complet d'un projet (commandes, avenants, risques, factures, recettes...)
 router.get(
   "/",
@@ -59,9 +82,19 @@ router.post(
     if (!projectId || !label || amount === undefined) {
       return res.status(400).json({ error: "projectId, label et amount sont requis" });
     }
+    if (!Number.isFinite(Number(amount))) {
+      return res.status(400).json({ error: "amount doit etre un nombre" });
+    }
 
     const project = await assertProjectAccess(req, projectId);
     if (!project) return res.status(404).json({ error: "Projet introuvable" });
+
+    try {
+      await assertLotBelongsToProject(projectId, lotId);
+      await assertSubcontractorBelongsToOrg(req, subcontractorId);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
 
     const item = await prisma.budgetItem.create({
       data: {
@@ -108,6 +141,18 @@ router.put(
       fileName,
       relatedEntryId,
     } = req.body;
+
+    if (amount !== undefined && !Number.isFinite(Number(amount))) {
+      return res.status(400).json({ error: "amount doit etre un nombre" });
+    }
+
+    try {
+      if (lotId !== undefined) await assertLotBelongsToProject(item.projectId, lotId);
+      if (subcontractorId !== undefined) await assertSubcontractorBelongsToOrg(req, subcontractorId);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
+
     const updated = await prisma.budgetItem.update({
       where: { id: req.params.id },
       data: {

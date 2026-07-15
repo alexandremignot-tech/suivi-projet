@@ -17,9 +17,12 @@ async function assertLotAccess(req, lotId) {
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { lotId, subcontractorId, number, period, amount, status, fileUrl, fileName, date, notes, lines } = req.body;
+    const { lotId, subcontractorId, number, period, amount, status, fileUrl, fileName, date, notes } = req.body;
     if (!lotId || !period || amount === undefined) {
       return res.status(400).json({ error: "lotId, period et amount sont requis" });
+    }
+    if (!Number.isFinite(Number(amount))) {
+      return res.status(400).json({ error: "amount doit etre un nombre" });
     }
 
     const lot = await assertLotAccess(req, lotId);
@@ -39,7 +42,6 @@ router.post(
         fileName,
         date: date ? new Date(date) : new Date(),
         notes,
-        lines: lines || undefined,
       },
     });
     res.status(201).json(statement);
@@ -66,7 +68,10 @@ router.put(
     const existing = await loadWithAccess(req, res);
     if (!existing) return;
 
-    const { subcontractorId, number, period, amount, status, fileUrl, fileName, date, notes, lines } = req.body;
+    const { subcontractorId, number, period, amount, status, fileUrl, fileName, date, notes } = req.body;
+    if (amount !== undefined && !Number.isFinite(Number(amount))) {
+      return res.status(400).json({ error: "amount doit etre un nombre" });
+    }
     const updated = await prisma.progressStatement.update({
       where: { id: req.params.id },
       data: {
@@ -79,7 +84,6 @@ router.put(
         fileName,
         date: date ? new Date(date) : undefined,
         notes,
-        lines: lines !== undefined ? lines : undefined,
       },
     });
     res.json(updated);
