@@ -1,11 +1,12 @@
-// Extraction assistee par IA d'un devis fournisseur (comparateur d'offres de prix) : lit un
-// fichier (PDF, image/photo, ou texte/CSV) et en extrait une liste structuree de postes/prix via
-// l'API Anthropic (meme mecanisme que aiAssistant.js). Ne stocke jamais le fichier source : le
-// resultat structure est renvoye au frontend, qui laisse l'utilisateur relire/corriger avant
-// d'enregistrer quoi que ce soit dans la comparaison (aucune ecriture automatique en base ici).
+// Extraction assistee par IA (Gemini) d'un devis fournisseur (comparateur d'offres de prix) : lit
+// un fichier (PDF, image/photo, ou texte/CSV) et en extrait une liste structuree de postes/prix.
+// Ne stocke jamais le fichier source : le resultat structure est renvoye au frontend, qui laisse
+// l'utilisateur relire/corriger avant d'enregistrer quoi que ce soit dans la comparaison (aucune
+// ecriture automatique en base ici).
+
+const { buildFilePart, callGeminiToolOnce } = require("./geminiClient");
 
 const SUPPORTED_TEXT_MIMES = new Set(["text/plain", "text/csv", "application/csv"]);
-const SUPPORTED_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const MAX_TEXT_CHARS = 60000; // marge large pour un devis, evite un prompt demesure sur un fichier texte enorme
 
 const TOOL = {
@@ -64,32 +65,28 @@ const TOOL = {
   },
 };
 
-function buildDocumentContentBlock({ buffer, mimetype, filename }) {
-  if (mimetype === "application/pdf") {
-    return { type: "document", source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") } };
-  }
-  if (SUPPORTED_IMAGE_MIMES.has(mimetype)) {
-    return { type: "image", source: { type: "base64", media_type: mimetype, data: buffer.toString("base64") } };
-  }
-  if (SUPPORTED_TEXT_MIMES.has(mimetype) || /\.(txt|csv)$/i.test(filename || "")) {
-    const text = buffer.toString("utf8").slice(0, MAX_TEXT_CHARS);
-    return { type: "text", text: `Contenu du fichier "${filename || "devis"}" :\n\n${text}` };
-  }
-  return null;
-}
+// Instructions systeme enrichies d'un glossaire metier KARNO (reseaux de chaleur / geothermie /
+// chaufferie / sous-stations) et d'exemples concrets, pour ameliorer la fiabilite de l'extraction :
+// un prompt precis avec contexte metier et exemples vaut mieux qu'un fine-tuning pour ce cas d'usage.
+const SYSTEM_INSTRUCTION = `Tu extrais les donnees d'un devis fournisseur pour alimenter un comparateur d'offres chez KARNO, une entreprise qui developpe et construit des reseaux de chaleur, installations geothermiques et chaufferies collectives en Belgique.
+
+Glossaire metier (pour reconnaitre les postes correctement, meme si le devis utilise un vocabulaire different) :
+- BB (Building Block) : lot technique d'un projet (ex: BB1 = geothermie/forage, BB2 = chaufferie, BB3 = reseau enterre, BB4 = techniques batiment/skid, BB5 = sous-stations clientes).
+- PEHD, PEX, Terrendis, Acier : materiaux de canalisation de reseau de chaleur enterre.
+- HIU (Heat Interface Unit) : sous-station compacte cote client, echangeur + regulation.
+- Skid : sous-station ou module technique prefabrique en usine, livre assemble.
+- CND : controle non destructif (radiographie, ultrasons) sur soudures.
+
+Exemples de bonne pratique :
+- Un devis avec un poste "Fourniture et pose PAC geothermique 30kW - 18.500 EUR" -> {label: "Fourniture et pose PAC geothermique 30kW", amount: 18500}.
+- Un devis dont un poste dit "inclus dans le forfait chantier" sans prix individuel -> ne pas remplir amount pour ce poste (l'omettre plutot que de deviner une repartition).
+- Une remise globale ou un rabais en bas de devis ne doit pas etre reparti poste par poste : le signaler dans warnings si pertinent plutot que de l'appliquer toi-meme a un poste au hasard.
+
+Lis attentivement le document fourni et appelle l'outil record_quote_line_items avec ce que tu y trouves reellement. Ne calcule jamais un montant qui n'est pas explicitement dans le document, et n'arrondis pas de maniere trompeuse. Reponds uniquement en appelant l'outil.`;
 
 async function extractQuoteLineItems({ buffer, mimetype, filename }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    const err = new Error(
-      "L'extraction IA n'est pas configuree sur ce serveur (variable ANTHROPIC_API_KEY manquante)."
-    );
-    err.statusCode = 503;
-    throw err;
-  }
-
-  const block = buildDocumentContentBlock({ buffer, mimetype, filename });
-  if (!block) {
+  const filePart = buildFilePart({ buffer, mimetype, filename, textMimes: SUPPORTED_TEXT_MIMES, maxTextChars: MAX_TEXT_CHARS });
+  if (!filePart) {
     const err = new Error(
       "Format de fichier non pris en charge pour l'extraction automatique. Formats acceptes : PDF, image " +
         "(photo/scan du devis), texte ou CSV. Pour un fichier Excel, exporte-le d'abord en PDF ou CSV."
@@ -98,60 +95,10 @@ async function extractQuoteLineItems({ buffer, mimetype, filename }) {
     throw err;
   }
 
-  const system =
-    "Tu extrais les donnees d'un devis fournisseur (chantier d'installation energetique : reseau de " +
-    "chaleur, geothermie, chaufferie, sous-stations) pour alimenter un comparateur d'offres. Lis " +
-    "attentivement le document fourni et appelle l'outil record_quote_line_items avec ce que tu y trouves " +
-    "reellement. Ne calcule jamais un montant qui n'est pas explicitement dans le document, et n'arrondis " +
-    "pas de maniere trompeuse. Si un poste n'a pas de prix individuel (ex: inclus dans un forfait global), " +
-    "omets le champ amount plutot que d'inventer une repartition. Reponds uniquement en appelant l'outil.";
+  const userParts = [filePart, { text: "Extrait les postes chiffres de ce devis via l'outil record_quote_line_items." }];
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 4096,
-      system,
-      messages: [
-        {
-          role: "user",
-          content: [
-            block,
-            {
-              type: "text",
-              text: "Extrait les postes chiffres de ce devis via l'outil record_quote_line_items.",
-            },
-          ],
-        },
-      ],
-      tools: [TOOL],
-      tool_choice: { type: "tool", name: "record_quote_line_items" },
-    }),
-  });
+  const input = await callGeminiToolOnce({ systemInstruction: SYSTEM_INSTRUCTION, userParts, tool: TOOL });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("Erreur API Anthropic (extraction devis):", response.status, errText);
-    const err = new Error("Erreur lors de l'appel a l'IA d'extraction. Reessaie dans un instant.");
-    err.statusCode = 502;
-    throw err;
-  }
-
-  const data = await response.json();
-  const content = Array.isArray(data.content) ? data.content : [];
-  const toolUse = content.find((b) => b.type === "tool_use" && b.name === "record_quote_line_items");
-  if (!toolUse) {
-    const err = new Error("L'IA n'a pas renvoye de resultat exploitable pour ce document.");
-    err.statusCode = 502;
-    throw err;
-  }
-
-  const input = toolUse.input || {};
   const lineItems = Array.isArray(input.lineItems) ? input.lineItems : [];
   return {
     offerName: input.offerName || "",

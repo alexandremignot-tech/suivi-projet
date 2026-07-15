@@ -1,13 +1,13 @@
-// Extraction assistee par IA d'un devis / bon de commande / mail fournisseur pour pre-remplir un
-// Contrat de sous-traitance KARNO : lit un fichier (PDF, image/photo, ou texte/CSV/mail colle) et
-// en extrait les champs du contrat (identite du sous-traitant, montant, chantier, perimetre
-// propose) via l'API Anthropic (meme mecanisme que quoteExtraction.js). Ne stocke jamais le
-// contrat automatiquement : le resultat structure est renvoye au frontend pour relecture/
-// correction avant creation effective du contrat (meme discipline "jamais d'ecriture auto, jamais
-// de donnee inventee" que le reste de l'app).
+// Extraction assistee par IA (Gemini) d'un devis / bon de commande / mail fournisseur pour
+// pre-remplir un Contrat de sous-traitance KARNO : lit un fichier (PDF, image/photo, ou
+// texte/CSV/mail colle) et en extrait les champs du contrat (identite du sous-traitant, montant,
+// chantier, perimetre propose). Ne stocke jamais le contrat automatiquement : le resultat
+// structure est renvoye au frontend pour relecture/correction avant creation effective du contrat
+// (meme discipline "jamais d'ecriture auto, jamais de donnee inventee" que le reste de l'app).
+
+const { buildFilePart, callGeminiToolOnce } = require("./geminiClient");
 
 const SUPPORTED_TEXT_MIMES = new Set(["text/plain", "text/csv", "application/csv", "message/rfc822"]);
-const SUPPORTED_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const MAX_TEXT_CHARS = 60000;
 
 const TOOL = {
@@ -69,32 +69,33 @@ const TOOL = {
   },
 };
 
-function buildDocumentContentBlock({ buffer, mimetype, filename }) {
-  if (mimetype === "application/pdf") {
-    return { type: "document", source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") } };
-  }
-  if (SUPPORTED_IMAGE_MIMES.has(mimetype)) {
-    return { type: "image", source: { type: "base64", media_type: mimetype, data: buffer.toString("base64") } };
-  }
-  if (SUPPORTED_TEXT_MIMES.has(mimetype) || /\.(txt|csv|eml|msg)$/i.test(filename || "")) {
-    const text = buffer.toString("utf8").slice(0, MAX_TEXT_CHARS);
-    return { type: "text", text: `Contenu du fichier "${filename || "document"}" :\n\n${text}` };
-  }
-  return null;
-}
+// Instructions systeme enrichies d'un glossaire metier et d'exemples concrets KARNO (reseaux de
+// chaleur/geothermie/chaufferie), pour ameliorer la qualite de l'extraction sans recourir a un
+// fine-tuning (non pertinent pour ce volume/cas d'usage) : le levier qui compte reellement ici est
+// un prompt precis, avec du contexte metier et des exemples de bonnes/mauvaises extractions.
+const SYSTEM_INSTRUCTION = `Tu extrais les donnees d'un devis, bon de commande ou mail fournisseur pour pre-remplir un contrat de sous-traitance chez KARNO, une entreprise qui developpe et construit des reseaux de chaleur, installations geothermiques et chaufferies collectives en Belgique.
+
+Glossaire metier (pour reconnaitre les postes de perimetre correctement, meme si le devis utilise un vocabulaire different) :
+- BB (Building Block) : lot technique d'un projet (ex: BB1 = geothermie/forage, BB2 = chaufferie, BB3 = reseau enterre, BB4 = techniques batiment/skid, BB5 = sous-stations clientes).
+- PEHD, PEX, Terrendis, Acier : materiaux de canalisation de reseau de chaleur enterre.
+- HIU (Heat Interface Unit) : sous-station compacte cote client, echangeur + regulation.
+- Skid : sous-station ou module technique prefabrique en usine, livre assemble.
+- CND : controle non destructif (radiographie, ultrasons) sur soudures.
+- DIU : Dossier d'Intervention Ulterieure (document de securite obligatoire en Belgique).
+- BCE : numero d'entreprise belge (equivalent SIRET), format 4 groupes de chiffres.
+- Qualiroute : cahier des charges type wallon pour la refection de voirie.
+
+Exemples de bonne pratique :
+- Un devis mentionnant "Soudure PEHD OD200, y compris controle visuel" -> poste de perimetre : {label: "Soudures PEHD OD200", commentaire: "Y compris controle visuel"}. Ne pas inventer un controle CND si non mentionne.
+- Un devis avec un total "Total general HTVA : 24.500 EUR" -> montantForfaitaire = 24500. Un devis avec seulement des prix unitaires par poste sans total explicite -> ne pas remplir montantForfaitaire (ne jamais additionner soi-meme les postes, une remise ou un forfait degressif peut s'appliquer).
+- Un mail disant "Bonjour, voici notre offre pour le chantier K-0061 a Namur" -> referenceChantier = "K-0061", adresseChantier = "Namur" (ou plus precis si une adresse complete est donnee).
+- Une mention manuscrite illisible ou un montant barre/corrige -> le signaler dans warnings plutot que de deviner lequel des deux montants est le bon.
+
+Lis attentivement le document fourni et appelle l'outil record_contract_input_data avec ce que tu y trouves reellement. Ne calcule et n'invente jamais une valeur absente du document (montant, date, identite) : omets le champ plutot que de deviner ou d'estimer. Reponds uniquement en appelant l'outil.`;
 
 async function extractContractInputData({ buffer, mimetype, filename }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    const err = new Error(
-      "L'extraction IA n'est pas configuree sur ce serveur (variable ANTHROPIC_API_KEY manquante)."
-    );
-    err.statusCode = 503;
-    throw err;
-  }
-
-  const block = buildDocumentContentBlock({ buffer, mimetype, filename });
-  if (!block) {
+  const filePart = buildFilePart({ buffer, mimetype, filename, textMimes: SUPPORTED_TEXT_MIMES, maxTextChars: MAX_TEXT_CHARS });
+  if (!filePart) {
     const err = new Error(
       "Format de fichier non pris en charge pour l'extraction automatique. Formats acceptes : PDF, image " +
         "(photo/scan), texte/mail colle en .txt, ou .csv. Pour un fichier Excel, exporte-le d'abord en PDF ou CSV."
@@ -103,61 +104,10 @@ async function extractContractInputData({ buffer, mimetype, filename }) {
     throw err;
   }
 
-  const system =
-    "Tu extrais les donnees d'un devis, bon de commande ou mail fournisseur (chantier d'installation " +
-    "energetique : reseau de chaleur, geothermie, chaufferie, sous-stations) pour pre-remplir un contrat " +
-    "de sous-traitance KARNO. Lis attentivement le document fourni et appelle l'outil " +
-    "record_contract_input_data avec ce que tu y trouves reellement. Ne calcule et n'invente jamais une " +
-    "valeur absente du document (montant, date, identite) : omets le champ plutot que de deviner ou " +
-    "d'estimer. Pour le perimetre (scope), deduis des postes concis a partir de la description des " +
-    "travaux/fournitures, sans y ajouter de prestation non mentionnee. Reponds uniquement en appelant l'outil.";
+  const userParts = [filePart, { text: "Extrait les donnees de ce document via l'outil record_contract_input_data." }];
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-5",
-      max_tokens: 4096,
-      system,
-      messages: [
-        {
-          role: "user",
-          content: [
-            block,
-            {
-              type: "text",
-              text: "Extrait les donnees de ce document via l'outil record_contract_input_data.",
-            },
-          ],
-        },
-      ],
-      tools: [TOOL],
-      tool_choice: { type: "tool", name: "record_contract_input_data" },
-    }),
-  });
+  const input = await callGeminiToolOnce({ systemInstruction: SYSTEM_INSTRUCTION, userParts, tool: TOOL });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("Erreur API Anthropic (extraction contrat):", response.status, errText);
-    const err = new Error("Erreur lors de l'appel a l'IA d'extraction. Reessaie dans un instant.");
-    err.statusCode = 502;
-    throw err;
-  }
-
-  const data = await response.json();
-  const content = Array.isArray(data.content) ? data.content : [];
-  const toolUse = content.find((b) => b.type === "tool_use" && b.name === "record_contract_input_data");
-  if (!toolUse) {
-    const err = new Error("L'IA n'a pas renvoye de resultat exploitable pour ce document.");
-    err.statusCode = 502;
-    throw err;
-  }
-
-  const input = toolUse.input || {};
   const sub = input.subcontractor || {};
   const scope = Array.isArray(input.scope) ? input.scope : [];
 

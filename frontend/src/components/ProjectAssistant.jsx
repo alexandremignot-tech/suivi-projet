@@ -159,7 +159,7 @@ export default function ProjectAssistant({ project, onChange }) {
             {sending && <p className="text-xs text-slate-400 italic">L'assistant reflechit...</p>}
             {notConfigured && (
               <p className="text-[11px] text-amber-600 text-center">
-                Astuce admin : configure ANTHROPIC_API_KEY sur le backend Render pour activer l'assistant.
+                Astuce admin : configure GEMINI_API_KEY sur le backend Render pour activer l'assistant.
               </p>
             )}
             <div ref={bottomRef} />

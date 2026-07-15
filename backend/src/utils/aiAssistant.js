@@ -8,8 +8,10 @@
 //    l'utilisateur qui confirme explicitement cote frontend, ce qui declenche l'appel a
 //    executeAction() (route POST /projects/:id/actions/confirm), qui revalide tout avant d'ecrire.
 //
-// Reutilise le meme mecanisme que aiReport.js : appel direct a l'API Anthropic si
-// ANTHROPIC_API_KEY est configuree, sinon message explicite (pas d'erreur, l'appli reste utilisable).
+// Utilise l'API Gemini (Google) si GEMINI_API_KEY est configuree, sinon message explicite (pas
+// d'erreur, l'appli reste utilisable). Voir utils/geminiClient.js pour le helper d'appel partage.
+
+const { toGeminiSchema, callGemini } = require("./geminiClient");
 
 function fmtEUR(n) {
   return (n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " EUR";
@@ -309,13 +311,13 @@ function buildProposedAction(toolUse, { lots, meetingMinutes, contracts }) {
 }
 
 async function generateProjectAnswer({ project, issues, meetingMinutes, contracts, question, history }) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   const context = buildProjectContext(project, issues, meetingMinutes, contracts);
 
   if (!apiKey) {
     return {
       answer:
-        "L'assistant IA n'est pas configure sur ce serveur (variable ANTHROPIC_API_KEY manquante). " +
+        "L'assistant IA n'est pas configure sur ce serveur (variable GEMINI_API_KEY manquante). " +
         "Demande a un administrateur de la renseigner dans les parametres Render du backend.",
       configured: false,
     };
@@ -328,41 +330,38 @@ Tu peux aussi PROPOSER une action parmi trois outils : creer un point ouvert, aj
 Donnees du projet :
 ${context}`;
 
-  const messages = [...(Array.isArray(history) ? history : []), { role: "user", content: question }];
+  // Historique : role "assistant" cote frontend -> "model" cote Gemini ; contenu toujours une
+  // string simple (jamais de tool_use/tool_result serialises dans l'historique, voir
+  // ProjectAssistant.jsx qui ne conserve que le texte de la reponse). Les 6 derniers messages sont
+  // deja filtres par le frontend avant l'appel.
+  const priorTurns = (Array.isArray(history) ? history : []).map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: String(m.content || "") }],
+  }));
+  const contents = [...priorTurns, { role: "user", parts: [{ text: question }] }];
+
+  const tools = [
+    { functionDeclarations: TOOLS.map((t) => ({ name: t.name, description: t.description, parameters: toGeminiSchema(t.input_schema) })) },
+  ];
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 1024,
-        system,
-        messages,
-        tools: TOOLS,
-      }),
+    const parts = await callGemini({
+      systemInstruction: system,
+      contents,
+      tools,
+      toolConfig: { functionCallingConfig: { mode: "AUTO" } },
+      maxOutputTokens: 1024,
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Erreur API Anthropic (assistant):", response.status, errText);
-      return { answer: "Erreur lors de l'appel a l'IA. Reessaie dans un instant.", configured: true, error: true };
-    }
-
-    const data = await response.json();
-    const content = Array.isArray(data.content) ? data.content : [];
-    const answer = content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
+    const answer = parts
+      .filter((p) => typeof p.text === "string")
+      .map((p) => p.text)
       .join("\n")
       .trim();
-    const toolUse = content.find((b) => b.type === "tool_use");
+    const functionCallPart = parts.find((p) => p.functionCall);
 
-    if (toolUse) {
+    if (functionCallPart) {
+      const toolUse = { name: functionCallPart.functionCall.name, input: functionCallPart.functionCall.args || {} };
       const proposedAction = buildProposedAction(toolUse, { lots: project.lots, meetingMinutes, contracts });
       if (proposedAction && proposedAction.type === "error") {
         return { answer: answer || proposedAction.summary, configured: true };
