@@ -410,6 +410,9 @@ model BudgetItem {
   relatedEntryId String?
   relatedEntry   BudgetItem?  @relation("EntryToInvoices", fields: [relatedEntryId], references: [id], onDelete: SetNull)
   invoices       BudgetItem[] @relation("EntryToInvoices")
+
+  // Contrat genere/lie a partir de cet achat (relation inverse, FK portee par Contract.budgetItemId)
+  contract Contract?
 }
 
 // Rapport de suivi de chantier : notes (texte ou dictees), points critiques, photos, resume genere
@@ -533,6 +536,16 @@ model Contract {
   templateKey     String         @default("COMPLET")
   data            Json // tous les champs variables du contrat (voir contracts.js FIELD_KEYS) + SCOPE
   createdAt       DateTime       @default(now())
+
+  // Lien vers l'achat (devis/BC/facture) dont ce contrat est issu : 1 contrat = 1 achat au plus.
+  // Unique => un meme achat ne peut pas etre rattache a 2 contrats differents.
+  budgetItemId String?     @unique
+  budgetItem   BudgetItem? @relation(fields: [budgetItemId], references: [id], onDelete: SetNull)
+
+  // Fichier source (devis/BC/mail) a partir duquel ce contrat a ete genere/importe, conserve
+  // comme piece jointe de reference (meme mecanisme que Document/BudgetItem.fileUrl+fileName).
+  sourceFileUrl  String?
+  sourceFileName String?
 }
 
 // Poste type de la checklist de perimetre contractuel d'un lot (le "contrat type" par BB),

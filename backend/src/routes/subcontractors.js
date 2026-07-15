@@ -25,7 +25,17 @@ router.post(
     if (!name) return res.status(400).json({ error: "Le nom du sous-traitant est requis" });
 
     const subcontractor = await prisma.subcontractor.create({
-      data: { name, specialty, contactName, email, phone, vatNumber, address, representative, organizationId: req.user.organizationId },
+      data: {
+        name,
+        specialty,
+        contactName,
+        email,
+        phone,
+        vatNumber,
+        address,
+        representative,
+        organizationId: req.user.organizationId,
+      },
     });
     res.status(201).json(subcontractor);
   })

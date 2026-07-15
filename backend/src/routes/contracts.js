@@ -1,15 +1,27 @@
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const multer = require("multer");
+const { v4: uuid } = require("uuid");
 const PizZip = require("pizzip");
 const Docxtemplater = require("docxtemplater");
 const prisma = require("../db");
 const asyncHandler = require("../utils/asyncHandler");
 const { requireAuth } = require("../middleware/auth");
 const { convertDocxBufferToPdf } = require("../utils/docxToPdf");
+const { extractContractInputData } = require("../utils/contractExtraction");
 
 const router = express.Router();
 router.use(requireAuth);
+
+// Meme repertoire d'upload que routes/uploads.js (disque local, sert via express.static("/uploads")).
+const UPLOAD_DIR = path.join(__dirname, "..", "..", "uploads");
+const sourceFileStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname)}`),
+});
+// 20 Mo max, coherent avec la limite du comparateur d'offres (devis/BC/mail scannes)
+const uploadSourceFile = multer({ storage: sourceFileStorage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Tous les tags attendus par le template complet (voir contrat_soustraitance_template.docx).
 // Toute cle absente est simplement rendue vide a la generation.
@@ -174,13 +186,41 @@ router.get(
   })
 );
 
+// Verifie qu'un achat (BudgetItem) appartient bien au projet et n'est pas deja lie a un autre
+// contrat (relation 1-1 : un achat ne peut alimenter qu'un seul contrat). Renvoie l'achat ou lance
+// une erreur {statusCode, message} exploitable par les routes POST/PUT ci-dessous.
+async function assertBudgetItemLinkable(projectId, budgetItemId, currentContractId) {
+  if (!budgetItemId) return null;
+  const item = await prisma.budgetItem.findFirst({
+    where: { id: budgetItemId, projectId },
+    include: { contract: { select: { id: true, title: true } } },
+  });
+  if (!item) {
+    const err = new Error("Achat introuvable sur ce projet");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (item.contract && item.contract.id !== currentContractId) {
+    const err = new Error(`Cet achat est deja lie au contrat "${item.contract.title}"`);
+    err.statusCode = 409;
+    throw err;
+  }
+  return item;
+}
+
 router.post(
   "/",
   asyncHandler(async (req, res) => {
-    const { projectId, lotId, subcontractorId, title, templateKey, data } = req.body;
+    const { projectId, lotId, subcontractorId, title, templateKey, data, budgetItemId, sourceFileUrl, sourceFileName } = req.body;
     if (!projectId || !title) return res.status(400).json({ error: "projectId et title sont requis" });
     const project = await assertProjectAccess(req, projectId);
     if (!project) return res.status(404).json({ error: "Projet introuvable" });
+
+    try {
+      await assertBudgetItemLinkable(projectId, budgetItemId, null);
+    } catch (err) {
+      return res.status(err.statusCode || 400).json({ error: err.message });
+    }
 
     const contract = await prisma.contract.create({
       data: {
@@ -190,6 +230,9 @@ router.post(
         title,
         templateKey: CONTRACT_TEMPLATES[templateKey] ? templateKey : "COMPLET",
         data: data && typeof data === "object" ? data : {},
+        budgetItemId: budgetItemId || null,
+        sourceFileUrl: sourceFileUrl || null,
+        sourceFileName: sourceFileName || null,
       },
     });
     res.status(201).json(contract);
@@ -202,7 +245,16 @@ router.put(
     const existing = await loadWithAccess(req, res);
     if (!existing) return;
 
-    const { lotId, subcontractorId, title, templateKey, data } = req.body;
+    const { lotId, subcontractorId, title, templateKey, data, budgetItemId, sourceFileUrl, sourceFileName } = req.body;
+
+    if (budgetItemId !== undefined) {
+      try {
+        await assertBudgetItemLinkable(existing.projectId, budgetItemId, existing.id);
+      } catch (err) {
+        return res.status(err.statusCode || 400).json({ error: err.message });
+      }
+    }
+
     const updated = await prisma.contract.update({
       where: { id: req.params.id },
       data: {
@@ -211,9 +263,42 @@ router.put(
         title,
         templateKey: templateKey !== undefined ? (CONTRACT_TEMPLATES[templateKey] ? templateKey : "COMPLET") : undefined,
         data: data !== undefined && typeof data === "object" ? data : undefined,
+        budgetItemId: budgetItemId !== undefined ? budgetItemId || null : undefined,
+        sourceFileUrl: sourceFileUrl !== undefined ? sourceFileUrl || null : undefined,
+        sourceFileName: sourceFileName !== undefined ? sourceFileName || null : undefined,
       },
     });
     res.json(updated);
+  })
+);
+
+// Import assiste par IA : upload d'un devis / bon de commande / mail fournisseur, extrait les
+// champs du contrat (identite du sous-traitant, montant, chantier, perimetre propose) via Claude.
+// Le fichier est conserve sur disque (meme mecanisme que /api/uploads) et son URL est renvoyee
+// avec le resultat, pour que le frontend puisse l'inclure dans la creation du contrat une fois
+// les champs relus/corriges par l'utilisateur. Aucune ecriture en base ici (pas de Contract cree).
+router.post(
+  "/extract",
+  uploadSourceFile.single("file"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Aucun fichier recu" });
+
+    let extracted;
+    try {
+      extracted = await extractContractInputData({
+        buffer: fs.readFileSync(req.file.path),
+        mimetype: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+    } catch (err) {
+      return res.status(err.statusCode || 500).json({ error: err.message });
+    }
+
+    res.status(200).json({
+      ...extracted,
+      sourceFileUrl: `/uploads/${req.file.filename}`,
+      sourceFileName: req.file.originalname,
+    });
   })
 );
 

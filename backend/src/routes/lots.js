@@ -123,43 +123,54 @@ router.delete(
 // Alimente le tableau OBJET du generateur de Contrats (voir routes/contracts.js), qui reprend
 // ces postes comme point de depart modulable pour chaque nouveau contrat de ce lot.
 //
-// Plusieurs bases pre-remplies, une par "famille" de lot (independant du numero de BB reel d'un
-// projet donne, puisque celui-ci varie d'un chantier a l'autre). Chaque famille expose une
-// fonction items(opts) : pour DISTRIBUTION_ENTERREE, opts.material (PEX / Terrendis / Acier) et
-// opts.insulationClass adaptent le libelle et le detail des postes (soudure si Acier, sablage
-// sinon). Les items marques hors perimetre par defaut restent modifiables (case a cocher) au
+// 5 bases pre-remplies, une par famille de Building Block (independant du numero de BB reel d'un
+// projet donne, puisque celui-ci varie d'un chantier a l'autre) : BB1 Geothermie, BB2 Chaufferie,
+// BB3 Distribution enterree, BB4 Batiment (tuyauterie/skid/mini-local), BB5 Sous-station. Chaque
+// famille expose une fonction items(opts) ; DISTRIBUTION_ENTERREE prend en plus opts.material
+// (PEX / Terrendis / Acier) et opts.voirieType (adapte le libelle du terrassement selon le type de
+// voirie concerne). Les items restent modifiables (case a cocher inclus/exclus, commentaire) au
 // niveau de chaque contrat individuel, voir ContractsView.jsx.
 const SCOPE_TEMPLATES = {
-  ENERGY_CENTER: {
-    label: "Energy Center - hydraulique / electrique / regulation (ex: BB2)",
+  BB1_GEOTHERMIE: {
+    label: "BB1 - Geothermie fermee (terrassement, liaisons horizontales, forage)",
     items: () => [
-      { label: "Hydraulique", commentaire: "Tuyauteries, supports, vannes, equipements, rincage, equilibrage, etc." },
+      {
+        label: "Terrassement et remblaiement",
+        commentaire: "Tranchees et fouilles necessaires aux liaisons horizontales et au champ de sondes, remblaiement soigne.",
+      },
+      {
+        label: "Liaisons horizontales champ de sondes -> collecteur",
+        commentaire: "Tranchees, pose, raccordements, sablage.",
+      },
+      {
+        label: "Forage geothermique des sondes",
+        commentaire: "Forage, equipement des sondes, remblai coulis, tests d'etancheite.",
+      },
+      { label: "Raccordement collecteur -> Energy Center", commentaire: "Soudure/assemblage, epreuve de pression." },
+      { label: "Releve geometrique et dossier as-built geothermie", commentaire: "Releve geometre, plans as-built des sondes et liaisons." },
+    ],
+  },
+  BB2_CHAUFFERIE: {
+    label: "BB2 - Chaufferie (hydraulique, sanitaire, electricite, regulation, calorifuge)",
+    items: () => [
+      { label: "Hydraulique (chauffage)", commentaire: "Tuyauteries, supports, vannes, equipements, rincage, equilibrage, etc." },
+      { label: "Sanitaire (ECS)", commentaire: "Production et distribution d'eau chaude sanitaire, bouclage, protection anti-legionellose." },
       { label: "Electricite", commentaire: "Tableaux, protections, cablages, raccordements, controles RGIE, etc." },
       { label: "Regulation/automation/GTC", commentaire: "Automates, capteurs, actionneurs, I/O, communication, parametrage, etc." },
+      { label: "Calorifuge", commentaire: "Isolation thermique des tuyauteries et equipements, finition (tole, PVC, etc.) selon plan de calorifuge." },
       { label: "Mise en service globale", commentaire: "Essais coordonnes, assistance aux autres lots, etc." },
       { label: "Documentation as-built", commentaire: "Plans, schemas, notices, parametres, etc." },
     ],
   },
-  GEOTHERMIE_FORAGE: {
-    label: "Geothermie fermee - forage & liaisons horizontales (ex: BB1)",
-    items: () => [
-      { label: "Forage des sondes geothermiques", commentaire: "Forage, equipement des sondes, remblai coulis, tests d'etancheite." },
-      { label: "Liaisons horizontales champ de sondes -> collecteur", commentaire: "Tranchees, pose, raccordements, sablage." },
-      { label: "Raccordement collecteur -> Energy Center", commentaire: "Soudure/assemblage, epreuve de pression." },
-      { label: "Releve geometrique et dossier as-built geothermie", commentaire: "Releve geometre, plans as-built des sondes et liaisons." },
-      {
-        label: "Terrassement et remblaiement",
-        commentaire: "Hors perimetre par defaut si realise par un tiers - decocher/adapter selon ce contrat.",
-      },
-    ],
-  },
-  DISTRIBUTION_ENTERREE: {
-    label: "Distribution enterree - reseau (ex: BB3, BB4)",
+  BB3_DISTRIBUTION_ENTERREE: {
+    label: "BB3 - Distribution enterree (pose conduite, terrassement, signalisation, voirie)",
     hasMaterial: true,
-    items: ({ material, insulationClass } = {}) => {
+    hasVoirieType: true,
+    items: ({ material, insulationClass, voirieType } = {}) => {
       const mat = (material || "PEX").trim();
       const classe = insulationClass ? ` (isolation ${insulationClass.trim()})` : "";
       const isSteel = /acier/i.test(mat);
+      const voirie = (voirieType || "voirie carrossable").trim();
       const items = [
         {
           label: `Fourniture et pose tuyauterie ${mat}${classe}`,
@@ -172,38 +183,48 @@ const SCOPE_TEMPLATES = {
           : { label: "Lit de pose et enrobage sable (sablage)", commentaire: "Conforme aux prescriptions du fabricant." }
       );
       items.push(
-        { label: "Epreuve de pression et controle d'etancheite", commentaire: "Apres chaque pose, rapport de conformite." },
-        { label: "Releve geometrique et dossier as-built", commentaire: "Releve geometre, plans as-built, reperage des vannes." },
         {
-          label: "Terrassement, remblaiement et refection de voirie",
-          commentaire: "Hors perimetre par defaut, realise par un tiers - decocher/adapter selon ce contrat.",
-        }
+          label: `Terrassement (${voirie})`,
+          commentaire: "Ouverture de tranchee, blindage si necessaire, evacuation des terres, adapte au type de voirie concerne.",
+        },
+        {
+          label: "Signalisation de chantier",
+          commentaire: "Mise en place et entretien de la signalisation routiere/pietonne conformement a l'autorisation de voirie.",
+        },
+        {
+          label: "Refection de voirie",
+          commentaire: "Remblaiement, reconstitution des fondations et du revetement, conforme au CCT applicable (ex: Qualiroute).",
+        },
+        { label: "Epreuve de pression et controle d'etancheite", commentaire: "Apres chaque pose, rapport de conformite." },
+        { label: "Releve geometrique et dossier as-built", commentaire: "Releve geometre, plans as-built, reperage des vannes." }
       );
       return items;
     },
   },
-  SOUS_STATION_SKID: {
-    label: "Sous-station SKID en pied de batiment (ex: BB4)",
+  BB4_BATIMENT: {
+    label: "BB4 - Batiment (tuyauterie ECS/chauffage sol, skid, mini-local chaufferie)",
     items: () => [
-      { label: "Fourniture et pose du skid sous-station", commentaire: "Assemblage usine ou sur site, echangeur, pompes, vannes." },
-      { label: "Raccordement hydraulique au reseau primaire", commentaire: "Piquage, vannes d'isolement, epreuve de pression." },
-      { label: "Raccordement electrique et regulation", commentaire: "Alimentation, armoire, capteurs, communication GTC." },
-      { label: "Comptage energie primaire", commentaire: "Compteur d'energie, releve, transmission." },
+      {
+        label: "Tuyauterie hydraulique batiment (ECS et chauffage au sol)",
+        commentaire: "Distribution interieure, colonnes, raccordements aux emetteurs (chauffage au sol) et aux points de puisage (ECS).",
+      },
+      {
+        label: "Skid (sous-station compacte prefabriquee)",
+        commentaire: "Fourniture et pose du skid, assemblage usine ou sur site, echangeur, pompes, vannes.",
+      },
+      {
+        label: "Mini-local de chaufferie - electricite",
+        commentaire: "Tableaux, protections, cablages, raccordements, controles RGIE du mini-local.",
+      },
+      {
+        label: "Mini-local de chaufferie - hydraulique",
+        commentaire: "Tuyauteries, vannes, equipements, rincage et equilibrage du mini-local.",
+      },
       { label: "Mise en service et documentation as-built", commentaire: "Essais, reglages, plans/notices as-built." },
     ],
   },
-  TECHNIQUES_SPECIALES_APPART: {
-    label: "Techniques speciales vers appartements (ex: BB4)",
-    items: () => [
-      { label: "Distribution secondaire vers appartements", commentaire: "Colonnes montantes ou reseau horizontal vers logements." },
-      { label: "Raccordement HIU ou emetteurs par appartement", commentaire: "Pose, raccordement hydraulique et regulation par logement." },
-      { label: "Comptage individuel", commentaire: "Compteur d'energie/eau chaude par logement." },
-      { label: "Mise en service par logement", commentaire: "Essais, reglages, PV de mise en service par appartement." },
-      { label: "Documentation as-built par logement", commentaire: "Plans et fiches techniques par logement." },
-    ],
-  },
-  SOUS_STATIONS_HIU: {
-    label: "Sous-stations clientes / HIU (ex: BB5)",
+  BB5_SOUS_STATION: {
+    label: "BB5 - Sous-station (clientes / HIU)",
     items: () => [
       { label: "Fourniture et pose des sous-stations clientes (HIU)", commentaire: "Echangeur compact, pompes, regulation integree." },
       { label: "Raccordement reseau primaire/secondaire", commentaire: "Piquage, vannes d'isolement, epreuve de pression." },
@@ -214,9 +235,9 @@ const SCOPE_TEMPLATES = {
   },
 };
 
-// Liste des bases disponibles (cles + libelles + si un materiau est demande), pour le selecteur
-// cote frontend. Volontairement statique/independant du lot : reutilisable sur n'importe quel
-// projet, la correspondance BB1/BB2/etc. n'est qu'indicative (donnee a titre d'exemple).
+// Liste des bases disponibles (cles + libelles + si un materiau/type de voirie est demande), pour
+// le selecteur cote frontend. Volontairement statique/independant du lot : reutilisable sur
+// n'importe quel projet, la correspondance BB1/BB2/etc. n'est qu'indicative (donnee a titre d'exemple).
 router.get(
   "/scope-templates",
   asyncHandler(async (req, res) => {
@@ -224,6 +245,7 @@ router.get(
       key,
       label: t.label,
       hasMaterial: Boolean(t.hasMaterial),
+      hasVoirieType: Boolean(t.hasVoirieType),
     }));
     res.json(list);
   })
@@ -240,17 +262,17 @@ router.get(
 );
 
 // Cree en une fois les items d'une base pre-remplie (templateKey parmi SCOPE_TEMPLATES). Pour
-// DISTRIBUTION_ENTERREE, material/insulationClass adaptent le contenu genere (voir ci-dessus).
-// templateKey absent -> ENERGY_CENTER par defaut (comportement historique, retro-compatible).
+// BB3_DISTRIBUTION_ENTERREE, material/insulationClass/voirieType adaptent le contenu genere (voir
+// ci-dessus). templateKey absent -> BB2_CHAUFFERIE par defaut (comportement historique, retro-compatible).
 router.post(
   "/:id/scope-items/standard",
   asyncHandler(async (req, res) => {
     const lot = await loadWithAccess(req, res);
     if (!lot) return;
 
-    const { templateKey, material, insulationClass } = req.body || {};
-    const template = SCOPE_TEMPLATES[templateKey] || SCOPE_TEMPLATES.ENERGY_CENTER;
-    const items = template.items({ material, insulationClass });
+    const { templateKey, material, insulationClass, voirieType } = req.body || {};
+    const template = SCOPE_TEMPLATES[templateKey] || SCOPE_TEMPLATES.BB2_CHAUFFERIE;
+    const items = template.items({ material, insulationClass, voirieType });
 
     const count = await prisma.lotScopeItem.count({ where: { lotId: lot.id } });
     const created = await prisma.$transaction(

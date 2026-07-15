@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import client from "../api/client";
+import client, { fileUrl } from "../api/client";
 
 // Genere le Contrat de sous-traitance au format .docx officiel KARNO : reprend la forme du
 // contrat complet fourni par l'utilisateur (30 articles, sommaire, definitions legales,
@@ -160,6 +160,19 @@ export default function ContractsView({ project }) {
   const [selectedTemplateKey, setSelectedTemplateKey] = useState("");
   const [material, setMaterial] = useState("PEX");
   const [insulationClass, setInsulationClass] = useState("");
+  const [voirieType, setVoirieType] = useState("voirie carrossable");
+
+  // Achats (registre financier) de ce projet, pour lier un contrat a l'achat (devis/BC/facture)
+  // dont il decoule (1 contrat = 1 achat au plus, voir contracts.js budgetItemId).
+  const [budgetItems, setBudgetItems] = useState([]);
+  const [budgetItemId, setBudgetItemId] = useState("");
+
+  // Import assiste par IA d'un devis / bon de commande / mail fournisseur : pre-remplit les champs
+  // et la checklist ci-dessous, et conserve le fichier source comme piece jointe du contrat.
+  const [extracting, setExtracting] = useState(false);
+  const [extractWarnings, setExtractWarnings] = useState([]);
+  const [sourceFileUrl, setSourceFileUrl] = useState("");
+  const [sourceFileName, setSourceFileName] = useState("");
 
   const lots = project.lots || [];
 
@@ -170,8 +183,14 @@ export default function ContractsView({ project }) {
     setLoading(false);
   }
 
+  async function loadBudgetItems() {
+    const { data: items } = await client.get("/budget", { params: { projectId: project.id } });
+    setBudgetItems(items);
+  }
+
   useEffect(() => {
     load();
+    loadBudgetItems();
     client.get("/subcontractors").then(({ data: subs }) => setSubcontractors(subs));
     client.get("/lots/scope-templates").then(({ data: templates }) => {
       setScopeTemplates(templates);
@@ -180,6 +199,10 @@ export default function ContractsView({ project }) {
     client.get("/contracts/templates").then(({ data: templates }) => setContractTemplates(templates));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
+
+  // Achats non encore lies a un contrat (le selecteur ne propose que ceux-la, sauf celui deja
+  // choisi pour ce formulaire, pour ne pas le faire disparaitre de la liste une fois selectionne).
+  const linkableBudgetItems = budgetItems.filter((b) => !b.contract || b.id === budgetItemId);
 
   const selectedContractTemplate = contractTemplates.find((t) => t.key === contractTemplateKey);
   const visibleFieldGroups = FIELD_GROUPS.map((g) => ({
@@ -210,10 +233,45 @@ export default function ContractsView({ project }) {
         templateKey: selectedTemplateKey,
         material,
         insulationClass,
+        voirieType,
       });
       await loadLotTemplate(lotId);
     } finally {
       setTemplateSaving(false);
+    }
+  }
+
+  // Import assiste par IA : upload d'un devis/BC/mail, pre-remplit les champs (uniquement ceux
+  // encore vides, pour ne pas ecraser une saisie manuelle deja en cours) et propose des postes de
+  // perimetre ajoutes a la checklist existante. Le fichier est conserve comme piece jointe du
+  // contrat (sourceFileUrl/sourceFileName inclus a la creation, voir handleCreate).
+  async function handleExtractFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setExtracting(true);
+    setExtractWarnings([]);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const { data: result } = await client.post("/contracts/extract", form);
+      setData((d) => {
+        const next = { ...d };
+        for (const [key, value] of Object.entries(result.fields || {})) {
+          if (value && !next[key]) next[key] = value;
+        }
+        return next;
+      });
+      if (Array.isArray(result.scope) && result.scope.length > 0) {
+        setScope((s) => [...s, ...result.scope]);
+      }
+      setSourceFileUrl(result.sourceFileUrl || "");
+      setSourceFileName(result.sourceFileName || "");
+      setExtractWarnings(result.warnings || []);
+    } catch (err) {
+      alert(err?.response?.data?.error || "Erreur lors de l'extraction du document.");
+    } finally {
+      setExtracting(false);
+      e.target.value = "";
     }
   }
 
@@ -300,6 +358,9 @@ export default function ContractsView({ project }) {
         title,
         templateKey: contractTemplateKey,
         data: { ...data, SCOPE: scope },
+        budgetItemId: budgetItemId || null,
+        sourceFileUrl: sourceFileUrl || null,
+        sourceFileName: sourceFileName || null,
       });
       setTitle("");
       setLotId("");
@@ -308,8 +369,15 @@ export default function ContractsView({ project }) {
       setScope([]);
       setLotTemplate([]);
       setContractTemplateKey("COMPLET");
+      setBudgetItemId("");
+      setSourceFileUrl("");
+      setSourceFileName("");
+      setExtractWarnings([]);
       setShowForm(false);
       await load();
+      await loadBudgetItems();
+    } catch (err) {
+      alert(err?.response?.data?.error || "Erreur lors de la creation du contrat.");
     } finally {
       setSaving(false);
     }
@@ -372,6 +440,32 @@ export default function ContractsView({ project }) {
 
       {showForm && (
         <form onSubmit={handleCreate} className="bg-white border border-slate-200 rounded-lg p-4 space-y-4">
+          <div className="flex items-center gap-3 bg-slate-50 border border-dashed border-slate-300 rounded-md px-3 py-2">
+            <label className="text-xs text-brand-600 font-medium cursor-pointer">
+              {extracting ? "Extraction en cours..." : "📄 Importer un devis / bon de commande / mail"}
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.eml"
+                onChange={handleExtractFile}
+                disabled={extracting}
+                className="hidden"
+              />
+            </label>
+            <span className="text-xs text-slate-400">
+              L'IA pre-remplit les champs et le perimetre ci-dessous a partir du fichier — a relire avant enregistrement.
+            </span>
+            {sourceFileName && (
+              <span className="text-xs text-slate-500 ml-auto">Piece jointe : {sourceFileName}</span>
+            )}
+          </div>
+          {extractWarnings.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-700 space-y-0.5">
+              {extractWarnings.map((w, i) => (
+                <p key={i}>⚠ {w}</p>
+              ))}
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-3">
             <input
               required
@@ -401,6 +495,18 @@ export default function ContractsView({ project }) {
               {subcontractors.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={budgetItemId}
+              onChange={(e) => setBudgetItemId(e.target.value)}
+              className="col-span-3 border border-slate-300 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">Lier a un achat existant du registre financier (optionnel)</option>
+              {linkableBudgetItems.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.label} — {b.amount} € {b.subcontractor ? `(${b.subcontractor.name})` : ""}
                 </option>
               ))}
             </select>
@@ -480,6 +586,17 @@ export default function ContractsView({ project }) {
                               className="col-span-2 border border-slate-300 rounded-md px-2 py-1 text-xs"
                             />
                           </>
+                        )}
+                        {selectedTemplate?.hasVoirieType && (
+                          <select
+                            value={voirieType}
+                            onChange={(e) => setVoirieType(e.target.value)}
+                            className="col-span-3 border border-slate-300 rounded-md px-2 py-1 text-xs"
+                          >
+                            <option value="voirie carrossable">Terrassement — voirie carrossable</option>
+                            <option value="trottoir / piste cyclable">Terrassement — trottoir / piste cyclable</option>
+                            <option value="zone verte / accotement">Terrassement — zone verte / accotement</option>
+                          </select>
                         )}
                       </div>
                       <button
@@ -623,6 +740,20 @@ export default function ContractsView({ project }) {
                   <p>Reference : {c.data?.PROJET || "—"}</p>
                   <p>Sous-traitant : {c.data?.ST_NOM || "—"}</p>
                   <p>Montant forfaitaire : {c.data?.MONTANT_FORFAIT ? `${c.data.MONTANT_FORFAIT} € HTVA` : "—"}</p>
+                  {c.budgetItemId && (
+                    <p>
+                      Achat lie :{" "}
+                      {budgetItems.find((b) => b.id === c.budgetItemId)?.label || "achat introuvable (peut-etre supprime)"}
+                    </p>
+                  )}
+                  {c.sourceFileUrl && (
+                    <p>
+                      Document source :{" "}
+                      <a href={fileUrl(c.sourceFileUrl)} target="_blank" rel="noreferrer" className="text-brand-600 underline">
+                        {c.sourceFileName || "voir le fichier"}
+                      </a>
+                    </p>
+                  )}
                   <div className="flex gap-3 pt-2">
                     <button
                       onClick={() => handleDownload(c, "docx")}

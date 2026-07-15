@@ -26,6 +26,10 @@ router.get(
         subcontractor: { select: { id: true, name: true } },
         lot: { select: { id: true, code: true, name: true } },
         invoices: { select: { id: true, label: true, amount: true, status: true } },
+        // Contrat deja genere/lie a cet achat, le cas echeant (voir routes/contracts.js) : permet
+        // au frontend de proposer uniquement les achats non encore lies dans le selecteur du
+        // generateur de contrats.
+        contract: { select: { id: true, title: true } },
       },
       orderBy: { date: "desc" },
     });
