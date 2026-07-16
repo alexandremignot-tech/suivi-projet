@@ -1,0 +1,536 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum DocumentStatus {
+  MISSING
+  RECEIVED
+  VALIDATED
+  REJECTED
+}
+
+enum ProjectType {
+  RESEAU_CHALEUR
+  GEOTHERMIE
+  CHAUFFERIE
+  SOUS_STATION
+  AUTRE
+}
+
+// Phase d'un lot, calquee sur le parcours reel : appel d'offres -> analyse -> contrat -> suivi -> reception
+enum LotPhase {
+  RFP_RFQ
+  BID_ANALYSIS
+  CONTRACT
+  FOLLOW_UP
+  RECEPTION_DIU
+  DONE
+}
+
+enum ProgressStatementStatus {
+  DRAFT
+  SUBMITTED
+  VALIDATED
+  INVOICED
+}
+
+// Type d'entree de suivi de chantier
+enum SiteReportType {
+  VISITE
+  REUNION_COORDINATION
+  REUNION_CHANTIER
+}
+
+enum UnitStepStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  BLOCKED
+}
+
+// Nature d'une ligne financiere, alignee sur le vrai fichier de suivi (onglets IN/OUT) :
+// cote depenses on distingue Commande/Avenant/Risque/Facture, cote recettes Contrat/Avenant/Risque/Subside
+enum FinancialEntryType {
+  PURCHASE_ORDER // Commande
+  AMENDMENT // Avenant
+  RISK // Risque
+  INVOICE // Facture
+  CONTRACT // Contrat (recette)
+  SUBSIDY // Subside (recette)
+  OTHER
+}
+
+// Pipeline de statut, commun aux depenses (engage -> facture -> valide -> paye)
+// et aux recettes (engage -> facture -> valide -> recu)
+enum FinancialEntryStatus {
+  DRAFT
+  ENGAGED
+  SUBMITTED
+  VALIDATED
+  PAID
+}
+
+// Une organisation = une equipe / entreprise (multi-tenant)
+model Organization {
+  id        String    @id @default(uuid())
+  name      String
+  createdAt DateTime  @default(now())
+  // Au-dela de ce montant HTVA, un BC doit etre approuve par un ADMIN avant engagement
+  approvalThreshold Float @default(10000)
+  users     User[]
+  projects  Project[]
+  subcontractors Subcontractor[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  passwordHash   String
+  name           String
+  role           Role         @default(MEMBER)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  assignedTasks Task[]          @relation("AssignedTasks")
+  createdTasks  Task[]          @relation("CreatedTasks")
+  projects      ProjectMember[]
+  siteReports   SiteReport[]
+
+  // Integration Google Calendar (OAuth) - rempli une fois l'utilisateur connecte a Google
+  googleRefreshToken String?
+  googleEmail        String?
+}
+
+// Table de jointure pour les membres d'un projet (au sein d'une organisation)
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+}
+
+model Project {
+  id             String       @id @default(uuid())
+  name           String
+  description    String?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  startDate      DateTime?
+  endDate        DateTime?
+  budgetTotal    Float        @default(0)
+  status         String       @default("active") // active, archived, completed
+  type           ProjectType  @default(AUTRE)
+  createdAt      DateTime     @default(now())
+
+  // Reference du projet cote Odoo (nom ou numero de commande client), pour retrouver les bons de commande
+  odooProjectRef String?
+  // Identifiant du calendrier Google cree pour ce projet (une fois synchronise)
+  googleCalendarId String?
+
+  columns     Column[]
+  tasks       Task[]
+  milestones  Milestone[]
+  budgetItems BudgetItem[]
+  members     ProjectMember[]
+  documents   Document[]
+  equipments  Equipment[]
+  siteReports SiteReport[]
+  lots        Lot[]
+  issues             Issue[]
+}
+
+// Un lot (ex: "BB1 - Forage geothermique") : decoupage reel d'un projet en sous-contrats,
+// chacun suivant le meme parcours RFP/RFQ -> Analyse -> Contrat -> Suivi -> Reception/DIU
+model Lot {
+  id              String        @id @default(uuid())
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code            String // ex: BB1, BB2...
+  name            String // ex: "Forage / sondes geothermiques"
+  phase           LotPhase      @default(RFP_RFQ)
+  subcontractorId String?
+  subcontractor   Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  contractAmount  Float?
+  order           Int           @default(0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+
+  documents          Document[]
+  progressStatements ProgressStatement[]
+  siteReports        SiteReport[]
+  tasks              Task[]
+  budgetItems        BudgetItem[]
+  unitStepTemplates  UnitStepTemplate[]
+  units              Unit[]
+  issues             Issue[]
+  equipments         Equipment[]
+  offers             Offer[]
+}
+
+// Etape type d'une checklist repetable (ex, pour BB5 : Piquage reseau, Booster, Sous-station...).
+// Definie une fois par lot, puis appliquee automatiquement a chaque unite (maison) de ce lot.
+model UnitStepTemplate {
+  id                     String         @id @default(uuid())
+  lotId                  String
+  lot                    Lot            @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  name                   String
+  category               String? // regroupement pour l'affichage compact (ex: "HIU", "PAC Booster", "Compteur ECS")
+  order                  Int            @default(0)
+  defaultSubcontractorId String?
+  defaultSubcontractor   Subcontractor? @relation(fields: [defaultSubcontractorId], references: [id], onDelete: SetNull)
+  createdAt              DateTime       @default(now())
+
+  steps UnitStep[]
+}
+
+// Une unite installee de maniere repetable au sein d'un lot (ex: une maison raccordee, "Lot 53")
+model Unit {
+  id        String   @id @default(uuid())
+  lotId     String
+  lot       Lot      @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  name      String // ex: "Lot 53" ou une adresse
+  notes     String?
+  // Fiche d'identification de l'unite (modeles/numeros de serie des equipements installes), ex:
+  // [{ "label": "Modele HIU", "value": "R589HPWY" }, { "label": "N. serie HIU", "value": "00014/2025" }]
+  specs     Json?
+  createdAt DateTime @default(now())
+
+  steps UnitStep[]
+}
+
+// Avancement d'une unite sur une etape type precise (une case de la grille maisons x etapes)
+model UnitStep {
+  id              String           @id @default(uuid())
+  unitId          String
+  unit            Unit             @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  templateId      String
+  template        UnitStepTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  status          UnitStepStatus   @default(TODO)
+  subcontractorId String?
+  subcontractor   Subcontractor?   @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  date            DateTime?
+  comment         String?
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([unitId, templateId])
+}
+
+// Etat d'avancement mensuel d'un sous-traitant sur un lot, qui declenche la facturation
+model ProgressStatement {
+  id              String                   @id @default(uuid())
+  lotId           String
+  lot             Lot                      @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  subcontractorId String?
+  subcontractor   Subcontractor?           @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  number          Int // EA1, EA2...
+  period          String // ex: "Mars 2026"
+  amount          Float
+  // Detail par poste (type "Suivi EA Sparx") : [{description, qty, unit, unitPrice, total, prevPct, cumulPct}]
+  lines           Json?
+  status          ProgressStatementStatus  @default(DRAFT)
+  fileUrl         String?
+  fileName        String?
+  date            DateTime                 @default(now())
+  notes           String?
+  createdAt       DateTime                 @default(now())
+}
+
+// Repertoire des sous-traitants de l'organisation (utilisable sur tous les projets)
+model Subcontractor {
+  id             String       @id @default(uuid())
+  name           String
+  specialty      String?
+  contactName    String?
+  email          String?
+  phone          String?
+  vatNumber      String? // numero d'entreprise / TVA (BCE)
+  address        String? // siege social
+  representative String? // representant legal
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  documents          Document[]
+  lots               Lot[]
+  progressStatements ProgressStatement[]
+  budgetItems        BudgetItem[]
+  unitStepTemplates  UnitStepTemplate[]
+  unitSteps          UnitStep[]
+  offers         Offer[]
+}
+
+// Document attendu ou recu pour un projet (dossier As-built, certificats, plans, etc.)
+model Document {
+  id              String          @id @default(uuid())
+  projectId       String
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId           String? // si renseigne, document rattache a un lot precis plutot qu'au projet entier
+  lot             Lot?            @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  name            String
+  category        String          @default("Autre") // ex: Plan As-built, Certificat de conformite, Manuel d'exploitation, Garantie
+  status          DocumentStatus  @default(MISSING)
+  subcontractorId String?
+  subcontractor   Subcontractor?  @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  deadline        DateTime?
+  fileUrl         String?
+  fileName        String?
+  notes           String?
+  receivedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+// Equipement installe sur le projet, avec sa fiche technique et son intervalle de maintenance.
+// Rattachable a un lot (BB) pour retrouver facilement "tous les equipements du BB2 (CEC)" par exemple.
+model Equipment {
+  id                     String    @id @default(uuid())
+  projectId              String
+  project                Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId                  String? // si renseigne, equipement rattache a un lot/Building Block precis
+  lot                    Lot?      @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  name                   String
+  category               String? // ex: Pompe a chaleur geothermique, PAC aerothermique, Echangeur, HIU, Sous-station
+  manufacturer           String?
+  model                  String?
+  serialNumber           String?
+  quantity               Int       @default(1)
+  location               String? // ex: "Toit batiment Est", "CEC local technique"
+  technicalSheetUrl      String?
+  technicalSheetFileName String?
+  // Parametres techniques structures issus de la fiche technique / design note, ex:
+  // [{ "label": "Puissance", "value": "474 kW" }, { "label": "COP", "value": "3" }]
+  specs                  Json?
+  maintenanceIntervalDays Int?
+  lastMaintenanceDate    DateTime?
+  notes                  String?
+  createdAt              DateTime  @default(now())
+  maintenanceRecords MaintenanceRecord[]
+}
+
+// Colonnes personnalisables du tableau Kanban (ex: A faire, En cours, Termine)
+model Column {
+  id        String  @id @default(uuid())
+  name      String
+  order     Int
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+}
+
+model Task {
+  id             String    @id @default(uuid())
+  title          String
+  description    String?
+  projectId      String
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId          String? // si renseigne, tache rattachee a un lot precis
+  lot            Lot?      @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  columnId       String
+  column         Column    @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  order          Int       @default(0)
+  priority       Priority  @default(MEDIUM)
+  startDate      DateTime?
+  dueDate        DateTime?
+  estimatedHours Float?
+  actualHours    Float?
+  estimatedCost  Float?    @default(0)
+  actualCost     Float?    @default(0)
+  assigneeId     String?
+  assignee       User?     @relation("AssignedTasks", fields: [assigneeId], references: [id])
+  createdById    String?
+  createdBy      User?     @relation("CreatedTasks", fields: [createdById], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  dependsOnIds String[] @default([]) // ids des taches dont celle-ci depend (pour le planning)
+}
+
+// Jalons pour la vue planning
+model Milestone {
+  id        String   @id @default(uuid())
+  name      String
+  date      DateTime
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  done      Boolean  @default(false)
+}
+
+// Lignes budgetaires (depenses / recettes) d'un projet
+model BudgetItem {
+  id        String   @id @default(uuid())
+  label     String
+  amount    Float
+  type      String   @default("expense") // expense | income (sens du flux)
+  category  String?
+  date      DateTime @default(now())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId     String? // si renseigne, ligne budgetaire rattachee a un lot precis
+  lot       Lot?     @relation(fields: [lotId], references: [id], onDelete: SetNull)
+
+  // Registre financier enrichi : nature de la ligne, statut, societe, piece jointe
+  entryType       FinancialEntryType   @default(PURCHASE_ORDER)
+  status          FinancialEntryStatus @default(ENGAGED)
+  subcontractorId String?
+  subcontractor   Subcontractor?       @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  invoiceNumber   String?
+  fileUrl         String?
+  fileName        String?
+  // Si cette ligne est une facture, peut pointer vers la commande dont elle decoule
+  relatedEntryId String?
+  relatedEntry   BudgetItem?  @relation("EntryToInvoices", fields: [relatedEntryId], references: [id], onDelete: SetNull)
+  invoices       BudgetItem[] @relation("EntryToInvoices")
+  requestedByName String?
+  approvedByName  String?
+  approvedAt      DateTime?
+  offers          Offer[]
+}
+
+// Rapport de suivi de chantier : notes (texte ou dictees), points critiques, photos, resume genere
+model SiteReport {
+  id             String         @id @default(uuid())
+  projectId      String
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId          String? // si renseigne, rapport rattache a un lot precis (ex: reunion de coordination BB1)
+  lot            Lot?           @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  type           SiteReportType @default(VISITE)
+  title          String
+  date           DateTime       @default(now())
+  authorId       String?
+  author         User?          @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  notes          String? // notes libres, dictees via reconnaissance vocale ou saisies au clavier
+  criticalPoints String? // points critiques signales sur le chantier
+  aiSummary      String? // rapport mis en forme (genere par IA si une cle est configuree, sinon mise en forme simple)
+  createdAt      DateTime       @default(now())
+
+  photos ReportPhoto[]
+}
+
+// Photo rattachee a un rapport de chantier
+model ReportPhoto {
+  id       String     @id @default(uuid())
+  reportId String
+  report   SiteReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  url      String
+  fileName String?
+  caption  String?
+}
+
+// Fichier stocke en base (persiste aux redeploiements, inclus dans les sauvegardes)
+model StoredFile {
+  id           String   @id @default(uuid())
+  name         String   @unique // nom servi dans l'URL /uploads/<name>
+  originalName String?
+  mime         String?
+  size         Int?
+  data         Bytes
+  createdAt    DateTime @default(now())
+}
+
+enum IssueStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+// Point ouvert (Comment tracker) : remarque a suivre jusqu'a cloture
+model Issue {
+  id          String      @id @default(uuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lotId       String?
+  lot         Lot?        @relation(fields: [lotId], references: [id], onDelete: SetNull)
+  number      Int
+  status      IssueStatus @default(OPEN)
+  topic       String? // Build / Commissioning / Design...
+  title       String
+  description String?
+  action      String? // "Gerer avec Matexi", "Suivi WDD"...
+  assignee    String?
+  author      String?
+  response    String? // dernier suivi / reponse Karno
+  dueDate     DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @default(now()) @updatedAt
+}
+
+// Journal des modifications (audit) : qui a fait quoi, quand. Sans FK pour survivre aux suppressions.
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String?
+  userName       String?
+  method         String
+  path           String
+  entity         String?
+  entityId       String?
+  projectId      String?
+  summary        String?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+// Entretien realise sur un equipement (le prochain = lastMaintenanceDate + maintenanceIntervalDays)
+model MaintenanceRecord {
+  id          String    @id @default(uuid())
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  date        DateTime
+  notes       String?
+  userName    String?
+  createdAt   DateTime  @default(now())
+
+  @@index([equipmentId])
+}
+
+enum OfferStatus {
+  RECUE
+  RETENUE
+  REJETEE
+}
+
+// Offre recue lors d'un appel d'offres (comparatif / bid analysis par lot)
+model Offer {
+  id              String         @id @default(uuid())
+  lotId           String
+  lot             Lot            @relation(fields: [lotId], references: [id], onDelete: Cascade)
+  supplierName    String
+  subcontractorId String?
+  subcontractor   Subcontractor? @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
+  amount          Float
+  delayWeeks      Float?
+  score           Float? // note /10
+  notes           String?
+  status          OfferStatus    @default(RECUE)
+  fileUrl         String?
+  fileName        String?
+  budgetItemId    String? // demande de BC creee quand l'offre est retenue
+  budgetItem      BudgetItem?    @relation(fields: [budgetItemId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
+
+  @@index([lotId])
+}
